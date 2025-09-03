@@ -1,0 +1,21 @@
+{
+  "name": "code-review-agent",
+  "version": "1.0.0",
+  "description": "AI-powered code review CLI tool",
+  "main": "agents/code-review.ts",
+  "scripts": {
+    "build": "bun build agents/code-review.ts --compile --outfile bin/code-review",
+    "dev": "bun run agents/code-review.ts",
+    "install-global": "bun run build && echo 'Add this to your ~/.zshrc: export PATH=\"$PATH:$(pwd)/bin\"'"
+  },
+  "keywords": ["code-review", "ai", "cli", "typescript"],
+  "author": "Rachel",
+  "license": "MIT",
+  "dependencies": {
+    "@anthropic-ai/sdk": "latest"
+  },
+  "devDependencies": {
+    "@types/node": "latest",
+    "typescript": "latest"
+  }
+}
