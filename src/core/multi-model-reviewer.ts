@@ -2,6 +2,7 @@ import { FileInfo } from './file-scanner.js';
 import { ReviewTemplate } from '../templates/quality.js';
 import { MultiModelProvider, ModelConfig, ModelResponse, ReviewRequest } from './multi-model-provider.js';
 import { TokenTracker } from './token-tracker.js';
+import { ModelStatusChecker } from '../utils/model-status-checker.js';
 
 export interface MultiModelReviewResult {
   filePath: string;
@@ -23,6 +24,7 @@ export class MultiModelReviewer {
   private provider: MultiModelProvider;
   private tokenTracker: TokenTracker;
   private config: ModelConfig;
+  private statusChecker: ModelStatusChecker;
 
   constructor(
     apiKeys: { anthropic?: string; gemini?: string },
@@ -32,6 +34,7 @@ export class MultiModelReviewer {
     this.config = config;
     this.provider = new MultiModelProvider(config, apiKeys, useClaudeCode);
     this.tokenTracker = new TokenTracker();
+    this.statusChecker = new ModelStatusChecker();
 
     console.log('🤖 Multi-Model AI Code Reviewer initialized');
     
@@ -94,6 +97,10 @@ export class MultiModelReviewer {
       modelResult.tokensUsed.output,
       modelResult.provider
     );
+    
+    // Record usage for status tracking
+    const modelKey = this.getModelKey(modelResult.model);
+    this.statusChecker.recordRequest(modelKey, modelResult.tokensUsed.input + modelResult.tokensUsed.output);
 
     const hasIssues = this.detectIssues(modelResult.content);
     
@@ -129,6 +136,10 @@ export class MultiModelReviewer {
         result.tokensUsed.output,
         result.provider
       );
+      
+      // Record usage for status tracking
+      const modelKey = this.getModelKey(result.model);
+      this.statusChecker.recordRequest(modelKey, result.tokensUsed.input + result.tokensUsed.output);
     });
 
     // Use the primary model's result as the main feedback, but include comparison

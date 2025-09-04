@@ -30,6 +30,7 @@ An AI-powered code review CLI tool that provides intelligent, multi-model code a
 - **Watch Mode**: Continuously monitor files for changes and auto-review
 - **Multiple Output Formats**: Terminal, Markdown, JSON, and HTML reports
 - **Progress Streaming**: Real-time results as each file completes
+- **Model Status Monitoring**: Real-time tracking of API usage, rate limits, and costs
 - **CI/CD Integration**: GitHub Actions workflow with PR comments
 
 ### 🔧 **Advanced Features**
@@ -97,6 +98,9 @@ code-review --interactive --template quality ./src
 
 # Watch mode for continuous development
 code-review --watch --template combined ./src
+
+# Check model status and rate limits
+code-review --status
 ```
 
 ### Multi-Model Usage
@@ -168,6 +172,80 @@ code-review --template combined --output markdown --output-file report.md ./src
 | `--ci-mode` | CI-optimized mode (no prompts, exit codes) | `--ci-mode` |
 | `--yes`, `-y` | Skip confirmation prompts | `--yes` |
 | `--allow-dirty` | Allow uncommitted changes | `--allow-dirty` |
+| `--status` | Show model status and rate limits | `--status` |
+| `--model-status` | Alias for --status | `--model-status` |
+
+## 📊 Model Status Monitoring
+
+Track your API usage, rate limits, and costs across all AI models in real-time.
+
+### Status Command
+
+```bash
+# Check current model status
+code-review --status
+```
+
+**Example Output:**
+```
+🤖 AI Model Status Report
+================================================================================
+📅 Generated: 9/4/2025, 2:45:30 PM
+
+🔹 Claude Models (Anthropic)
+----------------------------------------
+✅ Claude 3.5 Sonnet
+   Status: Ready for use
+   Usage: 2/5 requests/min, 1,234/40,000 tokens/min
+   Daily: 45/1000 requests
+   Cost: $3/$15 per 1K tokens
+
+⏰ Claude 3.5 Haiku
+   Status: Rate limited
+   Usage: 5/5 requests/min, 45,000/50,000 tokens/min
+   Next available: 23s
+   Cost: $0.25/$1.25 per 1K tokens
+
+🔸 Gemini Models (Google)
+----------------------------------------
+✅ Gemini 1.5 Flash
+   Status: Ready for use
+   Usage: 3/15 requests/min, 12,450/1,000,000 tokens/min
+   Daily: 234/1500 requests
+   Cost: Free
+
+📊 Summary:
+   ✅ Available: 2 models
+   ⏰ Rate Limited: 1 models
+   ❌ Unavailable: 0 models
+
+💡 Recommendations:
+   💡 Use free models: Gemini 1.5 Flash
+   ⏰ Rate limits reset in 23s
+```
+
+### Status Indicators
+
+- **✅ Available**: Model is ready for requests
+- **⏰ Rate Limited**: Model has hit rate limits, shows cooldown time
+- **❌ Unavailable**: Model is not accessible (missing API key)
+
+### Usage Tracking
+
+The status checker automatically tracks:
+- **Requests per minute/day**: Current usage vs limits
+- **Token consumption**: Input/output tokens used vs limits  
+- **Cost tracking**: Real-time cost estimates for paid models
+- **Rate limit cooldowns**: Time until limits reset
+- **Model recommendations**: Suggests best available models
+
+### Integration with Reviews
+
+Usage is automatically tracked during reviews:
+- Each API call records tokens used
+- Rate limit status updates in real-time
+- Smart model fallbacks when limits hit
+- Cost accumulation across sessions
 
 ## 🎯 Review Templates
 
