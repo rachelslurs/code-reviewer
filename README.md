@@ -73,23 +73,51 @@ An AI-powered code review CLI tool that uses Claude to analyze your code for qua
 
 ## Usage
 
-### Basic Commands
+### Command Syntax
+
+```bash
+code-review [path] [options]
+```
+
+### Arguments
+
+- **`path`** - Path to file or directory to review (default: current directory)
+
+### Options
+
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--template <name>` | | Review template to use (default: quality)<br/>Available: `quality` |
+| `--yes` | `-y` | Skip confirmation prompt |
+| `--allow-dirty` | | Allow review with uncommitted git changes |
+| `--no-git-check` | | Same as `--allow-dirty` |
+| `--config` | | Show current configuration |
+| `--setup` | | Run interactive setup wizard |
+| `--help` | `-h` | Show help message |
+
+### Examples
 
 ```bash
 # Review current directory
 code-review
 
-# Review specific path
-code-review ./src/components
+# Review specific directory
+code-review ./src
 
 # Review single file
 code-review component.tsx
 
 # Use specific template
-code-review --template security ./src
+code-review --template quality ./src
 
 # Skip confirmation prompt
 code-review --yes ./src
+
+# Allow review with uncommitted changes
+code-review --allow-dirty ./src
+
+# Combine multiple options
+code-review --template quality --yes --allow-dirty ./src
 
 # Show help
 code-review --help

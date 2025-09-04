@@ -57,6 +57,10 @@ async function main() {
   const template = args.includes('--template') 
     ? args[args.indexOf('--template') + 1] 
     : config.defaultTemplate;
+  
+  // Check for git override flags
+  const allowDirty = args.includes('--allow-dirty') || args.includes('--no-git-check');
+  const effectiveRequireCleanGit = config.requireCleanGit && !allowDirty;
 
   // Validate template
   if (template !== 'quality') {
@@ -66,9 +70,10 @@ async function main() {
 
   // Check git status if required
   const gitManager = new GitManager();
-  const gitCheck = gitManager.checkWorkingDirectory(config.requireCleanGit);
+  const gitCheck = gitManager.checkWorkingDirectory(effectiveRequireCleanGit);
   if (!gitCheck.clean) {
     console.error(`❌ ${gitCheck.message}`);
+    console.error('   Use --allow-dirty to bypass this check');
     process.exit(1);
   }
 
@@ -78,6 +83,11 @@ async function main() {
   
   if (gitManager.isGitRepo()) {
     console.log(`🌿 Branch: ${gitManager.getCurrentBranch()}`);
+    if (allowDirty && gitManager.hasUncommittedChanges()) {
+      console.log(`⚠️  Git: Dirty working directory (allowed)`);
+    } else if (gitManager.hasUncommittedChanges()) {
+      console.log(`✅ Git: Clean working directory`);
+    }
   }
 
   // Scan files
@@ -106,7 +116,10 @@ async function main() {
     }
 
     // Start review
-    const reviewer = new CodeReviewer(hasClaudeCode ? undefined : apiKey);
+    const reviewer = new CodeReviewer(
+      hasClaudeCode ? undefined : apiKey,
+      hasClaudeCode // Pass the authentication status
+    );
     const reviewTemplate = qualityTemplate; // Only quality for now
 
     const results = await reviewer.reviewMultipleFiles(

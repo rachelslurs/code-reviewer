@@ -23,11 +23,14 @@ export class CodeReviewer {
   private tokenTracker: TokenTracker;
   private useClaudeCode: boolean;
 
-  constructor(apiKey?: string) {
+  constructor(apiKey?: string, forceClaudeCode?: boolean) {
+    console.log(`🛠️  Debug: CodeReviewer constructor called with apiKey: ${apiKey ? 'provided' : 'undefined'}, forceClaudeCode: ${forceClaudeCode}`);
+    
     this.tokenTracker = new TokenTracker();
     
-    // Check if Claude Code is available and authenticated
-    this.useClaudeCode = this.checkClaudeCodeAuth();
+    // Use the forceClaudeCode flag if provided, otherwise check authentication
+    this.useClaudeCode = forceClaudeCode || this.checkClaudeCodeAuth();
+    console.log(`🛠️  Debug: Claude Code will be used: ${this.useClaudeCode}`);
     
     if (this.useClaudeCode) {
       console.log('✅ Using Claude Code authentication');
@@ -35,6 +38,7 @@ export class CodeReviewer {
       console.log('🔑 Using API key authentication');
       this.anthropic = new Anthropic({ apiKey });
     } else {
+      console.log('❌ No authentication method available');
       throw new Error('No authentication method available. Either authenticate with Claude Code or provide an API key.');
     }
   }
