@@ -14,6 +14,8 @@ import { CacheManager } from '../src/utils/cache-manager.js';
 import { MultiModelReviewer } from '../src/core/multi-model-reviewer.js';
 import { ReviewSessionManager } from '../src/utils/session-manager.js';
 import { ModelStatusChecker } from '../src/utils/model-status-checker.js';
+import { InteractiveSelector } from '../src/utils/interactive-selector.js';
+import { FileWatcher } from '../src/utils/file-watcher.js';
 import { OutputFormatter } from '../src/utils/output-formatter.js';
 
 async function main() {
@@ -134,6 +136,11 @@ async function main() {
     
   const includeUntracked = args.includes('--include-untracked');
   const includeStaged = args.includes('--include-staged');
+  
+  // Developer experience options
+  const ciMode = args.includes('--ci-mode');
+  const interactive = args.includes('--interactive') || args.includes('-i');
+  const watchMode = args.includes('--watch') || args.includes('-w');
 
   // Validate template
   const availableTemplates = ['quality', 'security', 'performance', 'typescript', 'combined', 'all'];
@@ -197,9 +204,24 @@ async function main() {
       ...scanResult, 
       files: filesToReview 
     });
+    
+    // Interactive file selection (after incremental filtering)
+    if (interactive && !ciMode) {
+      const selection = await InteractiveSelector.selectFiles(filesToReview);
+      if (selection.cancelled) {
+        console.log('Review cancelled.');
+        process.exit(0);
+      }
+      filesToReview = selection.selectedFiles;
+      
+      if (filesToReview.length === 0) {
+        console.log('No files selected for review.');
+        process.exit(0);
+      }
+    }
 
-    // Ask for confirmation
-    if (!args.includes('--yes') && !args.includes('-y')) {
+    // Ask for confirmation (skip in CI mode or if interactive selection already happened)
+    if (!args.includes('--yes') && !args.includes('-y') && !ciMode && !interactive) {
       const shouldContinue = await askConfirmation(
         `\nProceed with review of ${filesToReview.length} files?`
       );
@@ -261,6 +283,20 @@ async function main() {
         resume
       }
     );
+    
+    // Handle watch mode
+    if (watchMode) {
+      const reviewTemplate = getTemplates(template)[0]; // Use first template for watch mode
+      const watcher = new FileWatcher({
+        template: reviewTemplate,
+        config,
+        reviewer,
+        debounceMs: 2000 // 2 second debounce
+      });
+      
+      await watcher.startWatching([targetPath]);
+      return; // Keep watching (process stays alive)
+    }
     
     // Get files to review (from session if resuming)
     const finalFilesToReview = resume ? sessionManager.getRemainingFiles() : filesToReview;
