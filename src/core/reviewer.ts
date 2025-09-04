@@ -194,34 +194,43 @@ export class CodeReviewer {
   async reviewMultipleFiles(
     files: FileInfo[],
     template: ReviewTemplate,
+    concurrency: number = 3,
     onProgress?: (current: number, total: number, result: ReviewResult) => void
   ): Promise<ReviewResult[]> {
     const results: ReviewResult[] = [];
+    console.log(`\n🚀 Starting review of ${files.length} files with ${template.name} template (${concurrency} concurrent)\n`);
 
-    console.log(`\n🚀 Starting review of ${files.length} files with ${template.name} template\n`);
-
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
+    // Process files in parallel batches
+    for (let i = 0; i < files.length; i += concurrency) {
+      const batch = files.slice(i, i + concurrency);
+      console.log(`\n📦 Processing batch ${Math.floor(i/concurrency) + 1}: ${batch.map(f => f.relativePath).join(', ')}`);
       
-      try {
-        const result = await this.reviewFile(file, template);
-        results.push(result);
-
-        // Stream result immediately
-        this.streamResult(result, i + 1, files.length);
-
-        if (onProgress) {
-          onProgress(i + 1, files.length, result);
+      const batchPromises = batch.map(async (file, batchIndex) => {
+        try {
+          const result = await this.reviewFile(file, template);
+          
+          // Stream result immediately
+          this.streamResult(result, i + batchIndex + 1, files.length);
+          
+          if (onProgress) {
+            onProgress(i + batchIndex + 1, files.length, result);
+          }
+          
+          return result;
+        } catch (error) {
+          console.error(`Failed to review ${file.relativePath}, skipping...`);
+          return null;
         }
+      });
 
-        // Brief pause only for API key users to respect rate limits
-        if (i < files.length - 1 && !this.useClaudeCode) {
-          await new Promise(resolve => setTimeout(resolve, 200)); // Reduced from 1000ms
-        }
-
-      } catch (error) {
-        console.error(`Failed to review ${file.relativePath}, skipping...`);
-        // Continue with other files
+      // Wait for entire batch to complete
+      const batchResults = await Promise.all(batchPromises);
+      results.push(...batchResults.filter(r => r !== null) as ReviewResult[]);
+      
+      // Brief pause only for API key users and only between batches
+      if (i + concurrency < files.length && !this.useClaudeCode) {
+        console.log('⏸️  Brief pause between batches...');
+        await new Promise(resolve => setTimeout(resolve, 500));
       }
     }
 

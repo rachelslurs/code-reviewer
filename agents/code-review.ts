@@ -9,6 +9,7 @@ import { qualityTemplate } from '../src/templates/quality.js';
 import { securityTemplate } from '../src/templates/security.js';
 import { performanceTemplate } from '../src/templates/performance.js';
 import { typescriptTemplate } from '../src/templates/typescript.js';
+import { combinedTemplate } from '../src/templates/combined.js';
 
 async function main() {
   const args = process.argv.slice(2);
@@ -76,7 +77,7 @@ async function main() {
   const effectiveRequireCleanGit = config.requireCleanGit && !allowDirty;
 
   // Validate template
-  const availableTemplates = ['quality', 'security', 'performance', 'typescript', 'all'];
+  const availableTemplates = ['quality', 'security', 'performance', 'typescript', 'combined', 'all'];
   if (!availableTemplates.includes(template)) {
     console.error(`❌ Template '${template}' not available. Available templates: ${availableTemplates.join(', ')}`);
     process.exit(1);
@@ -145,6 +146,7 @@ async function main() {
       const results = await reviewer.reviewMultipleFiles(
         scanResult.files,
         reviewTemplate,
+        3, // Concurrency level
         (current, total, result) => {
           const status = result.hasIssues ? '🔍 Issues found' : '✅ Clean';
           console.log(`[${current}/${total}] ${result.filePath}: ${status}`);
@@ -317,6 +319,8 @@ function getTemplates(templateName: string) {
       return [performanceTemplate];
     case 'typescript':
       return [typescriptTemplate];
+    case 'combined':
+      return [combinedTemplate];
     case 'all':
       return [qualityTemplate, securityTemplate, performanceTemplate, typescriptTemplate];
     default:
