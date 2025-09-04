@@ -31,13 +31,14 @@ async function main() {
   const configManager = new ConfigManager();
   const config = configManager.load();
 
-  // Check authentication methods
+  // Check authentication methods (prioritize Claude Code)
+  console.log('\n🔍 Checking authentication...');
   const hasClaudeCode = checkClaudeCodeAuth();
   const hasApiKey = !!(config.apiKey || process.env.ANTHROPIC_API_KEY);
 
   if (!hasClaudeCode && !hasApiKey) {
     console.error('❌ No authentication found. Either:');
-    console.error('   1. Login with: claude auth login');
+    console.error('   1. Authenticate with Claude Code (recommended): claude setup-token');
     console.error('   2. Set API key with: code-review --setup');
     console.error('   3. Set ANTHROPIC_API_KEY environment variable');
     process.exit(1);
@@ -46,7 +47,7 @@ async function main() {
   const apiKey = config.apiKey || process.env.ANTHROPIC_API_KEY;
   
   if (hasClaudeCode) {
-    console.log('🔐 Using Claude Code authentication');
+    console.log('🔐 Using Claude Code authentication (subscription benefits applied)');
   } else {
     console.log('🔑 Using direct API key');
   }
@@ -105,7 +106,7 @@ async function main() {
     }
 
     // Start review
-    const reviewer = new CodeReviewer(apiKey);
+    const reviewer = new CodeReviewer(hasClaudeCode ? undefined : apiKey);
     const reviewTemplate = qualityTemplate; // Only quality for now
 
     const results = await reviewer.reviewMultipleFiles(
@@ -169,17 +170,24 @@ CONFIGURATION:
   Configuration is stored in .codereview.json in your project root.
   Use --setup to create or modify configuration interactively.
 
-ENVIRONMENT:
-  ANTHROPIC_API_KEY    Your Anthropic API key (can also be set via --setup)
+AUTHENTICATION:
+  Claude Code (recommended):
+    claude setup-token                # Authenticate with your subscription
+  
+  Direct API (alternative):
+    ANTHROPIC_API_KEY              # Environment variable
+    code-review --setup            # Interactive configuration
 `);
 }
 
 function showConfig(): void {
   const configManager = new ConfigManager();
   const config = configManager.load();
+  const hasClaudeCode = checkClaudeCodeAuth();
   
   console.log('\n📋 Current Configuration:');
-  console.log(`   Config file: ${configManager.exists() ? '✅ Found' : '❌ Not found (using defaults)'}`);
+  console.log(`   Config file: ${configManager.exists() ? '✅ Found' : '❌ Not found (using defaults)'}`);  
+  console.log(`   Claude Code auth: ${hasClaudeCode ? '✅ Authenticated' : '❌ Not authenticated'}`);  
   console.log(`   API Key: ${config.apiKey ? '✅ Set in config' : process.env.ANTHROPIC_API_KEY ? '✅ Set in environment' : '❌ Not set'}`);
   console.log(`   Max file size: ${Math.round(config.maxFileSize / 1024)}KB`);
   console.log(`   Default template: ${config.defaultTemplate}`);
@@ -193,12 +201,26 @@ async function setupWizard(): Promise<void> {
   
   const configManager = new ConfigManager();
   const currentConfig = configManager.load();
+  const hasClaudeCode = checkClaudeCodeAuth();
 
-  // API Key
-  const apiKey = await askInput(
-    'Enter your Anthropic API key (or press Enter to use environment variable):',
-    currentConfig.apiKey
-  );
+  // Show authentication status
+  if (hasClaudeCode) {
+    console.log('✅ Claude Code authentication detected - you\'re all set!');
+    console.log('   Using your subscription with higher rate limits.\n');
+  } else {
+    console.log('❌ Claude Code not authenticated');
+    console.log('   Recommended: Run `claude setup-token` to use your subscription benefits');
+    console.log('   Alternative: Set up an API key below\n');
+  }
+
+  // API Key (optional if Claude Code is authenticated)
+  let apiKey = '';
+  if (!hasClaudeCode || await askConfirmation('Do you want to set up an API key anyway?', false)) {
+    apiKey = await askInput(
+      'Enter your Anthropic API key (or press Enter to skip):',
+      currentConfig.apiKey
+    );
+  }
 
   // Max file size
   const maxFileSizeKB = await askInput(
@@ -261,12 +283,62 @@ async function askConfirmation(question: string, defaultValue: boolean = true): 
 
 function checkClaudeCodeAuth(): boolean {
   try {
-    const result = execSync('claude auth status', { 
+    // Check if claude command exists and get version
+    const version = execSync('claude --version', { 
       encoding: 'utf8', 
-      stdio: 'pipe' 
+      stdio: 'pipe',
+      timeout: 5000
     });
-    return result.includes('authenticated') || result.includes('logged in');
-  } catch (error) {
+    
+    console.log(`🔍 Detected Claude Code: ${version.trim()}`);
+    
+    // Test authentication using a simple model alias that should exist
+    const testResult = execSync('echo "Hello" | claude --print --model sonnet', {
+      encoding: 'utf8',
+      stdio: 'pipe',
+      timeout: 15000 // 15 second timeout for API call
+    });
+    
+    // Check if we got a successful response (any text response means auth worked)
+    const lowerResult = testResult.toLowerCase();
+    const hasAuthError = lowerResult.includes('authentication') ||
+                        lowerResult.includes('unauthorized') ||
+                        lowerResult.includes('not authenticated') ||
+                        lowerResult.includes('setup-token') ||
+                        lowerResult.includes('login required');
+    
+    // Max tokens error means auth worked, just wrong model limits
+    const hasMaxTokensError = lowerResult.includes('max_tokens');
+    
+    const isAuthenticated = !hasAuthError || hasMaxTokensError;
+    
+    console.log(`🔐 Authentication test: ${isAuthenticated ? 'Passed' : 'Failed - run claude setup-token'}`);
+    return isAuthenticated;
+    
+  } catch (error: any) {
+    console.log(`❌ Claude Code check failed: ${error.message}`);
+    
+    // Show more details about the error
+    if (error.stderr) {
+      console.log(`   stderr: ${error.stderr.toString()}`);
+    }
+    if (error.stdout) {
+      console.log(`   stdout: ${error.stdout.toString()}`);
+      
+      // Check if the error is just max_tokens (which means auth actually works)
+      const stdout = error.stdout.toString().toLowerCase();
+      if (stdout.includes('max_tokens')) {
+        console.log(`🔐 Authentication actually works (just a max_tokens limit issue)`);
+        return true;
+      }
+      
+      // Check if it's a model not found error (which also means auth works)
+      if (stdout.includes('not_found_error') && stdout.includes('model')) {
+        console.log(`🔐 Authentication works (just wrong model name)`);
+        return true;
+      }
+    }
+    
     return false;
   }
 }

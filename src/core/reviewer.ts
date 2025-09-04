@@ -1,4 +1,6 @@
+import Anthropic from '@anthropic-ai/sdk';
 import { execSync } from 'child_process';
+import { writeFileSync, unlinkSync } from 'fs';
 import { FileInfo } from './file-scanner.js';
 import { TokenTracker } from './token-tracker.js';
 import { ReviewTemplate } from '../templates/quality.js';
@@ -13,9 +15,11 @@ export interface ReviewResult {
   };
   timestamp: Date;
   hasIssues: boolean;
+  authMethod: 'claude-code' | 'api-key';
 }
 
 export class CodeReviewer {
+  private anthropic?: Anthropic;
   private tokenTracker: TokenTracker;
   private useClaudeCode: boolean;
 
@@ -25,19 +29,40 @@ export class CodeReviewer {
     // Check if Claude Code is available and authenticated
     this.useClaudeCode = this.checkClaudeCodeAuth();
     
-    if (!this.useClaudeCode && !apiKey) {
-      throw new Error('No authentication method available. Either provide an API key or authenticate with Claude Code.');
+    if (this.useClaudeCode) {
+      console.log('✅ Using Claude Code authentication');
+    } else if (apiKey) {
+      console.log('🔑 Using API key authentication');
+      this.anthropic = new Anthropic({ apiKey });
+    } else {
+      throw new Error('No authentication method available. Either authenticate with Claude Code or provide an API key.');
     }
   }
 
   private checkClaudeCodeAuth(): boolean {
     try {
-      const result = execSync('claude auth status', { 
-        encoding: 'utf8', 
-        stdio: 'pipe' 
+      // Test authentication using a simple model alias that should exist
+      const testResult = execSync('echo "auth test" | claude --print --model sonnet', {
+        encoding: 'utf8',
+        stdio: 'pipe',
+        timeout: 15000
       });
-      return result.includes('authenticated') || result.includes('logged in');
-    } catch (error) {
+      
+      const lowerResult = testResult.toLowerCase();
+      const hasAuthError = lowerResult.includes('authentication') ||
+                          lowerResult.includes('unauthorized') ||
+                          lowerResult.includes('not authenticated') ||
+                          lowerResult.includes('setup-token');
+      
+      // Max tokens error means auth worked
+      const hasMaxTokensError = lowerResult.includes('max_tokens');
+      
+      return !hasAuthError || hasMaxTokensError;
+    } catch (error: any) {
+      // Check if the error is just max_tokens (which means auth actually works)
+      if (error.stdout && error.stdout.toString().toLowerCase().includes('max_tokens')) {
+        return true;
+      }
       return false;
     }
   }
@@ -51,7 +76,6 @@ export class CodeReviewer {
     if (this.useClaudeCode) {
       return this.reviewWithClaudeCode(file, template);
     } else {
-      // Fallback to direct API (your existing implementation)
       return this.reviewWithAPI(file, template);
     }
   }
@@ -67,18 +91,18 @@ export class CodeReviewer {
 
     try {
       // Write prompt to file
-      const fs = await import('fs');
-      fs.writeFileSync(promptPath, fullPrompt);
+      writeFileSync(promptPath, fullPrompt);
 
-      // Use Claude Code to get response
-      const result = execSync(`claude chat --file "${promptPath}" --model claude-3-sonnet-20241022`, {
+      // Use Claude Code to get response (no max-tokens since it's not supported)
+      const result = execSync(`cat "${promptPath}" | claude --print --model sonnet`, {
         encoding: 'utf8',
         maxBuffer: 1024 * 1024 * 10, // 10MB buffer
-        stdio: 'pipe'
+        stdio: 'pipe',
+        timeout: 60000 // 60 second timeout
       });
 
       // Clean up temp file
-      fs.unlinkSync(promptPath);
+      unlinkSync(promptPath);
 
       // Estimate token usage (since Claude Code doesn't return exact counts)
       const estimatedInputTokens = Math.ceil(fullPrompt.length / 4);
@@ -99,7 +123,8 @@ export class CodeReviewer {
           output: estimatedOutputTokens
         },
         timestamp: new Date(),
-        hasIssues
+        hasIssues,
+        authMethod: 'claude-code'
       };
 
     } catch (error) {
@@ -109,11 +134,61 @@ export class CodeReviewer {
   }
 
   private async reviewWithAPI(file: FileInfo, template: ReviewTemplate): Promise<ReviewResult> {
-    // Your existing Anthropic SDK implementation goes here
-    throw new Error('API key method not implemented yet - please authenticate with Claude Code');
+    // Estimate tokens (rough approximation)
+    const estimatedTokens = Math.ceil(file.content.length / 4) + 1000;
+
+    // Check rate limits
+    const rateLimitCheck = this.tokenTracker.canMakeRequest(estimatedTokens);
+    if (!rateLimitCheck.allowed && rateLimitCheck.waitTime) {
+      this.tokenTracker.printRateLimit(rateLimitCheck.waitTime, rateLimitCheck.reason!);
+      await this.tokenTracker.waitForRateLimit(rateLimitCheck.waitTime);
+    }
+
+    const userPrompt = this.buildUserPrompt(file);
+
+    try {
+      const response = await this.anthropic!.messages.create({
+        model: 'claude-3-sonnet-20241022',
+        max_tokens: 4000,
+        system: template.systemPrompt,
+        messages: [
+          {
+            role: 'user',
+            content: userPrompt
+          }
+        ]
+      });
+
+      const feedback = response.content[0]?.type === 'text' 
+        ? response.content[0].text 
+        : 'No feedback generated';
+
+      const tokensUsed = {
+        input: response.usage?.input_tokens || 0,
+        output: response.usage?.output_tokens || 0
+      };
+
+      this.tokenTracker.recordUsage(tokensUsed.input, tokensUsed.output);
+      const hasIssues = this.detectIssues(feedback);
+
+      console.log(`✅ Review complete (${tokensUsed.input + tokensUsed.output} tokens)`);
+
+      return {
+        filePath: file.relativePath,
+        template: template.name,
+        feedback,
+        tokensUsed,
+        timestamp: new Date(),
+        hasIssues,
+        authMethod: 'api-key'
+      };
+
+    } catch (error) {
+      console.error(`❌ Error reviewing ${file.relativePath}:`, error);
+      throw error;
+    }
   }
 
-  // ... rest of your existing methods stay the same
   async reviewMultipleFiles(
     files: FileInfo[],
     template: ReviewTemplate,
@@ -200,7 +275,7 @@ Please provide a thorough code review focusing on the areas mentioned in your in
     console.log(`   Files with issues: ${filesWithIssues}`);
     console.log(`   Files clean: ${totalFiles - filesWithIssues}`);
     console.log(`   Total tokens used: ${totalTokens.toLocaleString()}`);
-    console.log(`   Authentication: ${this.useClaudeCode ? '✅ Claude Code' : '🔑 Direct API'}`);
+    console.log(`   Authentication method: ${this.useClaudeCode ? '✅ Claude Code' : '🔑 API Key'}`);
 
     this.tokenTracker.printUsageSummary();
   }
