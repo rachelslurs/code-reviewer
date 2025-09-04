@@ -207,13 +207,16 @@ export class CodeReviewer {
         const result = await this.reviewFile(file, template);
         results.push(result);
 
+        // Stream result immediately
+        this.streamResult(result, i + 1, files.length);
+
         if (onProgress) {
           onProgress(i + 1, files.length, result);
         }
 
-        // Brief pause between requests to be respectful
-        if (i < files.length - 1) {
-          await new Promise(resolve => setTimeout(resolve, 1000));
+        // Brief pause only for API key users to respect rate limits
+        if (i < files.length - 1 && !this.useClaudeCode) {
+          await new Promise(resolve => setTimeout(resolve, 200)); // Reduced from 1000ms
         }
 
       } catch (error) {
@@ -265,6 +268,22 @@ Please provide a thorough code review focusing on the areas mentioned in your in
 
   getTokenTracker(): TokenTracker {
     return this.tokenTracker;
+  }
+
+  private streamResult(result: ReviewResult, current: number, total: number): void {
+    const status = result.hasIssues ? '🔍 Issues found' : '✅ Clean';
+    const tokens = (result.tokensUsed.input + result.tokensUsed.output).toLocaleString();
+    
+    console.log(`\n${'='.repeat(80)}`);
+    console.log(`📝 STREAMING RESULT [${current}/${total}]`);
+    console.log(`${'='.repeat(80)}`);
+    console.log(`File: ${result.filePath}`);
+    console.log(`Template: ${result.template}`);
+    console.log(`Status: ${status}`);
+    console.log(`Tokens: ${tokens}`);
+    console.log(`\n${'-'.repeat(60)}`);
+    console.log(result.feedback);
+    console.log(`${'-'.repeat(60)}\n`);
   }
 
   printReviewSummary(results: ReviewResult[]): void {

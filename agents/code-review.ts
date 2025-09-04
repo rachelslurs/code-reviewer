@@ -154,20 +154,10 @@ async function main() {
       allResults.push(...results);
     }
 
-    // Print results
+    // Skip detailed results since we're streaming them
     console.log('\n' + '='.repeat(80));
-    console.log('📝 REVIEW RESULTS');
+    console.log('📊 FINAL SUMMARY (Detailed results streamed above)');
     console.log('='.repeat(80));
-
-    allResults.forEach((result, index) => {
-      console.log(`\n${index + 1}. ${result.filePath}`);
-      console.log(`   Template: ${result.template}`);
-      console.log(`   Status: ${result.hasIssues ? '🔍 Issues found' : '✅ Clean'}`);
-      console.log(`   Tokens: ${(result.tokensUsed.input + result.tokensUsed.output).toLocaleString()}`);
-      console.log('\n' + '-'.repeat(60));
-      console.log(result.feedback);
-      console.log('-'.repeat(60));
-    });
 
     reviewer.printReviewSummary(allResults);
 
