@@ -28,6 +28,7 @@ An AI-powered code review CLI tool that provides intelligent, multi-model code a
 ### 🛠 **Developer Experience**
 - **Interactive Mode**: Choose specific files to review with visual selection
 - **Watch Mode**: Continuously monitor files for changes and auto-review
+- **Auto-Fallback**: Intelligent model selection with automatic fallbacks when models are unavailable
 - **Multiple Output Formats**: Terminal, Markdown, JSON, and HTML reports
 - **Progress Streaming**: Real-time results as each file completes
 - **Model Status Monitoring**: Real-time tracking of API usage, rate limits, and costs
@@ -99,6 +100,9 @@ code-review --interactive --template quality ./src
 # Watch mode for continuous development
 code-review --watch --template combined ./src
 
+# Auto-fallback: Smart model selection with automatic fallbacks
+code-review --auto-fallback --template security ./src
+
 # Check model status and rate limits
 code-review --status
 
@@ -148,6 +152,7 @@ code-review --template combined --output markdown --output-file report.md ./src
 | `--multi-model` | Enable smart multi-model selection | `--multi-model` |
 | `--compare-models` | Compare results from multiple AI models | `--compare-models` |
 | `--model <name>` | Force specific model: `claude-sonnet`, `claude-haiku`, `gemini-pro`, `gemini-flash` | `--model gemini-flash` |
+| `--auto-fallback` | Smart model selection with automatic fallbacks when models unavailable | `--auto-fallback` |
 
 ### Output & Format
 
@@ -283,6 +288,88 @@ Usage is automatically tracked during reviews:
 - Rate limit status updates in real-time
 - Smart model fallbacks when limits hit
 - Cost accumulation across sessions
+
+## 🎆 Auto-Fallback Model Selection
+
+Intelligent model selection that automatically tries the best model for your task and gracefully falls back when models are unavailable due to rate limits or authentication issues.
+
+### How It Works
+
+```bash
+# Enable auto-fallback for any template
+code-review --auto-fallback --template security ./src
+```
+
+**Example Output:**
+```
+🎯 Auto-fallback enabled for security template
+📋 Priority chain: claude-sonnet → claude-haiku → gemini-pro → gemini-flash
+✅ Available models: gemini-pro → gemini-flash
+🎆 Auto-fallback: Will try models until one works
+🚀 Initializing auto-fallback reviewer with 2 models
+```
+
+### Smart Model Priorities by Template
+
+Each review template has an optimized model priority chain:
+
+**🔒 Security Reviews**
+- Priority: Claude Sonnet → Claude Haiku → Gemini Pro → Gemini Flash
+- Why: Claude excels at vulnerability detection and security analysis
+
+**🔄 Combined Reviews** 
+- Priority: Claude Sonnet → Gemini Pro → Claude Haiku → Gemini Flash
+- Why: Comprehensive analysis benefits from Claude's depth, Gemini's speed
+
+**⚡ Quality/Performance/TypeScript Reviews**
+- Priority: Gemini Flash → Claude Haiku → Gemini Pro → Claude Sonnet
+- Why: Fast feedback loops, Gemini excels at code quality and optimization
+
+### Real-World Benefits
+
+**🛡 Rate Limit Resilience**
+```bash
+# When Claude hits 5-hour limit, automatically uses Gemini
+code-review --auto-fallback --template quality ./src
+# ✅ Continues working seamlessly
+```
+
+**💰 Cost Optimization**
+```bash
+# Uses free Gemini models when available, falls back to paid Claude
+code-review --auto-fallback --watch --template typescript ./src
+# ✅ Maximizes free tier usage
+```
+
+**🔧 Authentication Flexibility**
+```bash
+# Works with any combination of API keys
+code-review --auto-fallback --template combined ./src
+# ✅ Uses whatever authentication you have available
+```
+
+### Advanced Usage
+
+```bash
+# Auto-fallback + Interactive selection
+code-review --auto-fallback --interactive --template security ./src
+
+# Auto-fallback + Watch mode for continuous development
+code-review --auto-fallback --watch --template quality ./src
+
+# Auto-fallback + Incremental reviews
+code-review --auto-fallback --incremental --template combined ./src
+```
+
+### vs Manual Model Selection
+
+| Approach | Rate Limit Handling | Cost Optimization | Setup Complexity |
+|----------|-------------------|------------------|------------------|
+| `--model claude-sonnet` | ❌ Fails when rate limited | ❌ Always uses paid model | ✅ Simple |
+| `--model gemini-flash` | ❌ Fails if no Gemini key | ✅ Always free | ✅ Simple |
+| `--auto-fallback` | ✅ Graceful fallback | ✅ Smart cost optimization | ✅ Automatic |
+
+**Recommendation**: Use `--auto-fallback` as your default for the best experience.
 
 ## 🎯 Review Templates
 
