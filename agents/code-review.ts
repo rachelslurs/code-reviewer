@@ -10,6 +10,7 @@ import { securityTemplate } from '../src/templates/security.js';
 import { performanceTemplate } from '../src/templates/performance.js';
 import { typescriptTemplate } from '../src/templates/typescript.js';
 import { combinedTemplate } from '../src/templates/combined.js';
+import { CacheManager } from '../src/utils/cache-manager.js';
 import { OutputFormatter } from '../src/utils/output-formatter.js';
 
 async function main() {
@@ -29,6 +30,12 @@ async function main() {
 
   if (args.includes('--setup')) {
     await setupWizard();
+    process.exit(0);
+  }
+  // Handle cache clearing first (before other logic)
+  if (args.includes('--clear-cache')) {
+    const cacheManager = new CacheManager();
+    cacheManager.clearCache();
     process.exit(0);
   }
 
@@ -94,6 +101,9 @@ async function main() {
   // Check for git override flags
   const allowDirty = args.includes('--allow-dirty') || args.includes('--no-git-check');
   const effectiveRequireCleanGit = config.requireCleanGit && !allowDirty;
+  
+  // Check cache options
+  const noCache = args.includes('--no-cache');
 
   // Validate template
   const availableTemplates = ['quality', 'security', 'performance', 'typescript', 'combined', 'all'];
@@ -152,7 +162,8 @@ async function main() {
     // Start review
     const reviewer = new CodeReviewer(
       hasClaudeCode ? undefined : apiKey,
-      hasClaudeCode // Pass the authentication status
+      hasClaudeCode, // Pass the authentication status
+      !noCache // Enable cache unless --no-cache flag is used
     );
     
     // Select review template(s)

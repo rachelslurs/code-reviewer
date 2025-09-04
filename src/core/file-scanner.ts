@@ -5,6 +5,7 @@ import { CodeReviewConfig } from '../utils/config.js';
 export interface FileInfo {
   path: string;
   relativePath: string;
+  absolutePath: string;
   size: number;
   extension: string;
   content: string;
@@ -104,6 +105,7 @@ export class FileScanner {
       return {
         path: filePath,
         relativePath,
+        absolutePath: filePath,
         size: stat.size,
         extension: extname(filePath),
         content

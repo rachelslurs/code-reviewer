@@ -4,6 +4,7 @@ import { writeFileSync, unlinkSync } from 'fs';
 import { FileInfo } from './file-scanner.js';
 import { TokenTracker } from './token-tracker.js';
 import { ReviewTemplate } from '../templates/quality.js';
+import { CacheManager } from '../utils/cache-manager.js';
 
 export interface ReviewResult {
   filePath: string;
@@ -22,9 +23,11 @@ export class CodeReviewer {
   private anthropic?: Anthropic;
   private tokenTracker: TokenTracker;
   private useClaudeCode: boolean;
+  private cacheManager: CacheManager;
 
-  constructor(apiKey?: string, forceClaudeCode?: boolean) {
+  constructor(apiKey?: string, forceClaudeCode?: boolean, enableCache: boolean = true) {
     this.tokenTracker = new TokenTracker();
+    this.cacheManager = enableCache ? new CacheManager() : null as any;
     
     // Use the forceClaudeCode flag if provided, otherwise check authentication
     this.useClaudeCode = forceClaudeCode || this.checkClaudeCodeAuth();
@@ -198,22 +201,54 @@ export class CodeReviewer {
     onProgress?: (current: number, total: number, result: ReviewResult) => void
   ): Promise<ReviewResult[]> {
     const results: ReviewResult[] = [];
+    
+    // Separate cached and uncached files
+    const { cachedFiles, uncachedFiles, stats } = this.cacheManager 
+      ? this.cacheManager.separateFiles(files, template.name)
+      : { cachedFiles: [], uncachedFiles: files, stats: { totalFiles: files.length, cachedFiles: 0, newFiles: files.length, changedFiles: 0, timeSaved: '0s' } };
+    
     console.log(`\n🚀 Starting review of ${files.length} files with ${template.name} template (${concurrency} concurrent)\n`);
+    
+    // Show cache stats
+    if (this.cacheManager && files.length > 1) {
+      this.cacheManager.printCacheStats(stats);
+      console.log();
+    }
+    
+    // Add cached results immediately
+    cachedFiles.forEach(({ result }, index) => {
+      results.push(result);
+      console.log(`💾 [CACHED] ${result.filePath}: ${result.hasIssues ? '🔍 Issues found' : '✅ Clean'}`);
+      
+      if (onProgress) {
+        onProgress(index + 1, files.length, result);
+      }
+    });
+    
+    if (cachedFiles.length > 0 && uncachedFiles.length > 0) {
+      console.log(`\n🔄 Now reviewing ${uncachedFiles.length} changed/new files...\n`);
+    }
 
-    // Process files in parallel batches
-    for (let i = 0; i < files.length; i += concurrency) {
-      const batch = files.slice(i, i + concurrency);
+    // Process uncached files in parallel batches
+    let processedCount = cachedFiles.length;
+    for (let i = 0; i < uncachedFiles.length; i += concurrency) {
+      const batch = uncachedFiles.slice(i, i + concurrency);
       console.log(`\n📦 Processing batch ${Math.floor(i/concurrency) + 1}: ${batch.map(f => f.relativePath).join(', ')}`);
       
       const batchPromises = batch.map(async (file, batchIndex) => {
         try {
           const result = await this.reviewFile(file, template);
           
+          // Cache the result
+          if (this.cacheManager) {
+            this.cacheManager.cacheResult(file, template.name, result);
+          }
+          
           // Stream result immediately
-          this.streamResult(result, i + batchIndex + 1, files.length);
+          this.streamResult(result, processedCount + batchIndex + 1, files.length);
           
           if (onProgress) {
-            onProgress(i + batchIndex + 1, files.length, result);
+            onProgress(processedCount + batchIndex + 1, files.length, result);
           }
           
           return result;
@@ -226,12 +261,18 @@ export class CodeReviewer {
       // Wait for entire batch to complete
       const batchResults = await Promise.all(batchPromises);
       results.push(...batchResults.filter(r => r !== null) as ReviewResult[]);
+      processedCount += batchResults.length;
       
       // Brief pause only for API key users and only between batches
-      if (i + concurrency < files.length && !this.useClaudeCode) {
+      if (i + concurrency < uncachedFiles.length && !this.useClaudeCode) {
         console.log('⏸️  Brief pause between batches...');
         await new Promise(resolve => setTimeout(resolve, 500));
       }
+    }
+    
+    // Save cache to disk
+    if (this.cacheManager) {
+      this.cacheManager.finalize();
     }
 
     return results;
