@@ -5,6 +5,7 @@ import { FileInfo } from './file-scanner.js';
 import { TokenTracker } from './token-tracker.js';
 import { ReviewTemplate } from '../templates/quality.js';
 import { CacheManager } from '../utils/cache-manager.js';
+import { ModelStatusChecker } from '../utils/model-status-checker.js';
 
 export interface ReviewResult {
   filePath: string;
@@ -24,10 +25,12 @@ export class CodeReviewer {
   private tokenTracker: TokenTracker;
   private useClaudeCode: boolean;
   private cacheManager: CacheManager;
+  private statusChecker: ModelStatusChecker;
 
   constructor(apiKey?: string, forceClaudeCode?: boolean, enableCache: boolean = true) {
     this.tokenTracker = new TokenTracker();
     this.cacheManager = enableCache ? new CacheManager() : null as any;
+    this.statusChecker = new ModelStatusChecker();
     
     // Use the forceClaudeCode flag if provided, otherwise check authentication
     this.useClaudeCode = forceClaudeCode || this.checkClaudeCodeAuth();
@@ -114,6 +117,9 @@ export class CodeReviewer {
       const estimatedOutputTokens = Math.ceil(result.length / 4);
 
       this.tokenTracker.recordUsage(estimatedInputTokens, estimatedOutputTokens);
+      
+      // Record usage for status tracking
+      this.statusChecker.recordRequest('claude-sonnet', estimatedInputTokens + estimatedOutputTokens);
 
       const hasIssues = this.detectIssues(result);
 
@@ -174,6 +180,10 @@ export class CodeReviewer {
       };
 
       this.tokenTracker.recordUsage(tokensUsed.input, tokensUsed.output);
+      
+      // Record usage for status tracking
+      this.statusChecker.recordRequest('claude-sonnet', tokensUsed.input + tokensUsed.output);
+      
       const hasIssues = this.detectIssues(feedback);
 
       console.log(`✅ Review complete (${tokensUsed.input + tokensUsed.output} tokens)`);

@@ -13,6 +13,7 @@ import { combinedTemplate } from '../src/templates/combined.js';
 import { CacheManager } from '../src/utils/cache-manager.js';
 import { MultiModelReviewer } from '../src/core/multi-model-reviewer.js';
 import { ReviewSessionManager } from '../src/utils/session-manager.js';
+import { ModelStatusChecker } from '../src/utils/model-status-checker.js';
 import { OutputFormatter } from '../src/utils/output-formatter.js';
 
 async function main() {
@@ -38,6 +39,12 @@ async function main() {
   if (args.includes('--clear-cache')) {
     const cacheManager = new CacheManager();
     cacheManager.clearCache();
+    process.exit(0);
+  }
+  
+  // Handle model status command
+  if (args.includes('--model-status') || args.includes('--status')) {
+    await showModelStatus();
     process.exit(0);
   }
 
@@ -348,6 +355,8 @@ OPTIONS:
   --yes, -y           Skip confirmation prompt
   --config            Show current configuration
   --setup             Run interactive setup wizard
+  --status            Show model status and rate limits
+  --model-status      Alias for --status
   --help, -h          Show this help message
 
 EXAMPLES:
@@ -385,6 +394,52 @@ function showConfig(): void {
   console.log(`   Output format: ${config.outputFormat}`);
   console.log(`   Require clean git: ${config.requireCleanGit ? '✅' : '❌'}`);
   console.log(`   Ignore patterns: ${config.ignorePatterns.length} patterns`);
+}
+
+async function showModelStatus(): Promise<void> {
+  console.log('\n🔍 Checking model status...');
+  
+  const configManager = new ConfigManager();
+  const config = configManager.load();
+  const hasClaudeCode = checkClaudeCodeAuth();
+  
+  // Initialize status checker
+  const statusChecker = new ModelStatusChecker();
+  
+  // Determine available models based on authentication
+  const availableModels = [];
+  
+  if (hasClaudeCode || config.apiKey || process.env.ANTHROPIC_API_KEY) {
+    availableModels.push('claude-sonnet', 'claude-haiku');
+  }
+  
+  if (config.geminiApiKey || process.env.GEMINI_API_KEY) {
+    availableModels.push('gemini-pro', 'gemini-flash');
+  }
+  
+  if (availableModels.length === 0) {
+    console.error('❌ No API keys configured. Use --setup to configure authentication.');
+    return;
+  }
+  
+  try {
+    // Get status for all models
+    const statuses = await statusChecker.getModelStatuses(availableModels);
+    
+    // Display comprehensive report
+    statusChecker.displayStatusReport(statuses);
+    
+    // Show recommendations
+    const recommendations = statusChecker.getRecommendations(statuses);
+    if (recommendations.length > 0) {
+      console.log('💡 Recommendations:');
+      recommendations.forEach(rec => console.log(`   ${rec}`));
+      console.log();
+    }
+    
+  } catch (error) {
+    console.error('❌ Error checking model status:', error);
+  }
 }
 
 async function setupWizard(): Promise<void> {
