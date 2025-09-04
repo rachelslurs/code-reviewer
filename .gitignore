@@ -11,8 +11,9 @@ out/
 # Bun build temporary files
 .*.bun-build
 
-# Code review cache
+# Code review cache and sessions
 .codereview-cache/
+.codereview-sessions/
 
 # Test files are kept for demonstration
 # test-files/ - intentionally tracked

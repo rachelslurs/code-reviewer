@@ -12,6 +12,7 @@ import { typescriptTemplate } from '../src/templates/typescript.js';
 import { combinedTemplate } from '../src/templates/combined.js';
 import { CacheManager } from '../src/utils/cache-manager.js';
 import { MultiModelReviewer } from '../src/core/multi-model-reviewer.js';
+import { ReviewSessionManager } from '../src/utils/session-manager.js';
 import { OutputFormatter } from '../src/utils/output-formatter.js';
 
 async function main() {
@@ -113,6 +114,19 @@ async function main() {
   const specificModel = modelIndex !== -1 && modelIndex < args.length - 1 
     ? args[modelIndex + 1] 
     : null;
+    
+  // Session management and incremental options
+  const resume = args.includes('--resume');
+  const incremental = args.includes('--incremental') || args.includes('--changed-only');
+  
+  // Parse incremental options
+  const compareWithIndex = args.indexOf('--compare-with');
+  const compareWith = compareWithIndex !== -1 && compareWithIndex < args.length - 1 
+    ? args[compareWithIndex + 1] 
+    : 'last-commit';
+    
+  const includeUntracked = args.includes('--include-untracked');
+  const includeStaged = args.includes('--include-staged');
 
   // Validate template
   const availableTemplates = ['quality', 'security', 'performance', 'typescript', 'combined', 'all'];
@@ -146,6 +160,7 @@ async function main() {
   // Scan files
   console.log('\n📂 Scanning files...');
   const scanner = new FileScanner(config);
+  const sessionManager = new ReviewSessionManager();
   
   try {
     const scanResult = scanner.scanPath(targetPath);
@@ -154,13 +169,32 @@ async function main() {
       console.log('❌ No reviewable files found.');
       process.exit(0);
     }
+    
+    let filesToReview = scanResult.files;
+    
+    // Apply incremental filtering if requested
+    if (incremental) {
+      filesToReview = sessionManager.getIncrementalFiles(scanResult.files, {
+        compareWith,
+        includeUntracked,
+        includeStaged
+      });
+      
+      if (filesToReview.length === 0) {
+        console.log('✅ No changed files to review!');
+        process.exit(0);
+      }
+    }
 
-    scanner.printScanSummary(scanResult);
+    scanner.printScanSummary({ 
+      ...scanResult, 
+      files: filesToReview 
+    });
 
     // Ask for confirmation
     if (!args.includes('--yes') && !args.includes('-y')) {
       const shouldContinue = await askConfirmation(
-        `\nProceed with review of ${scanResult.files.length} files?`
+        `\nProceed with review of ${filesToReview.length} files?`
       );
       if (!shouldContinue) {
         console.log('Review cancelled.');
@@ -208,25 +242,61 @@ async function main() {
       );
     }
     
+    // Initialize session management
+    const session = await sessionManager.startSession(
+      filesToReview,
+      template,
+      targetPath,
+      {
+        outputFormat,
+        outputFile,
+        noCache,
+        resume
+      }
+    );
+    
+    // Get files to review (from session if resuming)
+    const finalFilesToReview = resume ? sessionManager.getRemainingFiles() : filesToReview;
+    
+    if (finalFilesToReview.length === 0) {
+      console.log('✅ All files already completed!');
+      const completedResults = sessionManager.getCompletedResults();
+      if (completedResults.length > 0) {
+        reviewer.printReviewSummary(completedResults);
+      }
+      sessionManager.completeSession();
+      process.exit(0);
+    }
+    
     // Select review template(s)
     const templates = getTemplates(template);
     const allResults: any[] = [];
+    
+    // Add any previously completed results
+    const previousResults = sessionManager.getCompletedResults();
+    allResults.push(...previousResults);
     
     for (const reviewTemplate of templates) {
       console.log(`\n🎆 Running ${reviewTemplate.name} review...`);
       
       const results = await reviewer.reviewMultipleFiles(
-        scanResult.files,
+        finalFilesToReview,
         reviewTemplate,
         3, // Concurrency level
         (current, total, result) => {
           const status = result.hasIssues ? '🔍 Issues found' : '✅ Clean';
-          console.log(`[${current}/${total}] ${result.filePath}: ${status}`);
+          const progress = sessionManager.getProgress();
+          console.log(`[${progress.completed + current}/${progress.total}] ${result.filePath}: ${status}`);
         }
       );
       
+      // Update session progress
+      sessionManager.markFilesCompleted(results);
       allResults.push(...results);
     }
+    
+    // Complete the session
+    sessionManager.completeSession();
 
     // Handle results based on output format
     if (outputFormat === 'terminal') {
