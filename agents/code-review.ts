@@ -54,27 +54,6 @@ async function main() {
   const configManager = new ConfigManager();
   const config = configManager.load();
 
-  // Check authentication methods (prioritize Claude Code)
-  console.log('\n🔍 Checking authentication...');
-  const hasClaudeCode = checkClaudeCodeAuth();
-  const hasApiKey = !!(config.apiKey || process.env.ANTHROPIC_API_KEY);
-
-  if (!hasClaudeCode && !hasApiKey) {
-    console.error('❌ No authentication found. Either:');
-    console.error('   1. Authenticate with Claude Code (recommended): claude setup-token');
-    console.error('   2. Set API key with: code-review --setup');
-    console.error('   3. Set ANTHROPIC_API_KEY environment variable');
-    process.exit(1);
-  }
-
-  const apiKey = config.apiKey || process.env.ANTHROPIC_API_KEY;
-  
-  if (hasClaudeCode) {
-    console.log('🔐 Using Claude Code authentication (subscription benefits applied)');
-  } else {
-    console.log('🔑 Using direct API key');
-  }
-
   // Parse arguments more carefully
   const templateIndex = args.indexOf('--template');
   let template = config.defaultTemplate;
@@ -141,6 +120,130 @@ async function main() {
   const ciMode = args.includes('--ci-mode');
   const interactive = args.includes('--interactive') || args.includes('-i');
   const watchMode = args.includes('--watch') || args.includes('-w');
+  const autoFallback = args.includes('--auto-fallback');
+
+  // Auto-fallback model priority by template
+  const getModelPriority = (template: string): string[] => {
+    const priorities: { [key: string]: string[] } = {
+      'security': ['claude-sonnet', 'claude-haiku', 'gemini-pro', 'gemini-flash'],
+      'combined': ['claude-sonnet', 'gemini-pro', 'claude-haiku', 'gemini-flash'], 
+      'quality': ['gemini-flash', 'claude-haiku', 'gemini-pro', 'claude-sonnet'],
+      'performance': ['gemini-flash', 'gemini-pro', 'claude-haiku', 'claude-sonnet'],
+      'typescript': ['gemini-flash', 'claude-haiku', 'gemini-pro', 'claude-sonnet']
+    };
+    return priorities[template] || priorities['quality'];
+  };
+
+  // Determine which models we'll actually need
+  let needsClaude = false;
+  let needsGemini = false;
+  let modelFallbackChain: string[] = [];
+  
+  if (autoFallback) {
+    // Auto-fallback mode: determine priority chain and check what's available
+    modelFallbackChain = getModelPriority(template);
+    console.log(`🎯 Auto-fallback enabled for ${template} template`);
+    console.log(`📋 Priority chain: ${modelFallbackChain.join(' → ')}`);
+    
+    // We might need both providers for fallback
+    needsClaude = modelFallbackChain.some(m => m.startsWith('claude-'));
+    needsGemini = modelFallbackChain.some(m => m.startsWith('gemini-'));
+  } else if (specificModel) {
+    // User specified a particular model
+    needsClaude = specificModel.startsWith('claude-');
+    needsGemini = specificModel.startsWith('gemini-');
+    modelFallbackChain = [specificModel];
+  } else if (useMultiModel || comparisonMode) {
+    // Multi-model mode without specific model - might need both
+    needsClaude = true;
+    needsGemini = true;
+  } else {
+    // Default single model mode - use Claude
+    needsClaude = true;
+    modelFallbackChain = ['claude-sonnet'];
+  }
+
+  // Check authentication methods based on what we actually need
+  console.log('\n🔍 Checking authentication...');
+  const hasClaudeCode = needsClaude ? checkClaudeCodeAuth() : false;
+  const hasApiKey = needsClaude ? !!(config.apiKey || process.env.ANTHROPIC_API_KEY) : false;
+  const hasGeminiKey = needsGemini ? !!(config.geminiApiKey || process.env.GEMINI_API_KEY) : false;
+
+  // In auto-fallback mode, we're more flexible about missing auth
+  const claudeAvailable = hasClaudeCode || hasApiKey;
+  const geminiAvailable = hasGeminiKey;
+  
+  if (autoFallback) {
+    // Filter fallback chain to only include models we have auth for
+    const availableModels = modelFallbackChain.filter(model => {
+      if (model.startsWith('claude-')) return claudeAvailable;
+      if (model.startsWith('gemini-')) return geminiAvailable;
+      return false;
+    });
+    
+    if (availableModels.length === 0) {
+      console.error('❌ No authentication available for any fallback models:');
+      if (needsClaude && !claudeAvailable) {
+        console.error('   Claude: claude setup-token OR set ANTHROPIC_API_KEY');
+      }
+      if (needsGemini && !geminiAvailable) {
+        console.error('   Gemini: set GEMINI_API_KEY (get from: https://aistudio.google.com/app/apikey)');
+      }
+      process.exit(1);
+    }
+    
+    modelFallbackChain = availableModels;
+    console.log(`✅ Available models: ${modelFallbackChain.join(' → ')}`);
+    
+  } else {
+    // Original strict authentication logic for non-fallback modes
+    const errors = [];
+    
+    if (needsClaude && !claudeAvailable) {
+      errors.push('Claude authentication required:');
+      errors.push('  • claude setup-token (recommended) OR');
+      errors.push('  • Set ANTHROPIC_API_KEY environment variable');
+    }
+    
+    if (needsGemini && !geminiAvailable) {
+      errors.push('Gemini authentication required:');
+      errors.push('  • Set GEMINI_API_KEY environment variable');
+      errors.push('  • Get API key from: https://aistudio.google.com/app/apikey');
+    }
+    
+    if (errors.length > 0) {
+      console.error('❌ Missing required authentication:');
+      errors.forEach(error => console.error('   ' + error));
+      console.error('\n💡 Try --auto-fallback to use any available models');
+      console.error('💡 For Gemini-only: code-review --model gemini-flash');
+      console.error('💡 For Claude-only: code-review --model claude-sonnet');
+      process.exit(1);
+    }
+  }
+
+  const apiKey = config.apiKey || process.env.ANTHROPIC_API_KEY;
+  
+  // Show what authentication we're using
+  const authMethods = [];
+  if (hasClaudeCode && needsClaude) {
+    authMethods.push('🔐 Claude Code (subscription)');
+  } else if (hasApiKey && needsClaude) {
+    authMethods.push('🔑 Claude API');
+  }
+  
+  if (hasGeminiKey && needsGemini) {
+    authMethods.push('🔑 Gemini API');
+  }
+  
+  if (authMethods.length > 0) {
+    console.log(`✅ Authentication: ${authMethods.join(', ')}`);
+  }
+  
+  if (autoFallback) {
+    console.log(`🎆 Auto-fallback: Will try models until one works`);
+  } else if (specificModel) {
+    console.log(`🎯 Model: ${specificModel}`);
+  }
 
   // Validate template
   const availableTemplates = ['quality', 'security', 'performance', 'typescript', 'combined', 'all'];
@@ -231,18 +334,37 @@ async function main() {
       }
     }
 
-    // Start review - choose between single model or multi-model
+    // Start review - choose between single model, multi-model, or auto-fallback
     let reviewer: any;
     
-    if (useMultiModel || comparisonMode) {
-      // Multi-model reviewer
+    if (autoFallback) {
+      // Auto-fallback reviewer using multi-model infrastructure
       const geminiApiKey = config.geminiApiKey || process.env.GEMINI_API_KEY;
       
-      if (!hasClaudeCode && !apiKey && !geminiApiKey) {
-        console.error('❌ Multi-model mode requires at least one API key');
-        console.error('   Set GEMINI_API_KEY for Gemini models');
-        process.exit(1);
-      }
+      // Configure auto-fallback settings
+      const fallbackConfig = {
+        primaryModel: modelFallbackChain[0], // Start with the first (preferred) model
+        fallbackModels: modelFallbackChain.slice(1), // Rest are fallbacks
+        comparisonMode: false, // We want fallback, not comparison
+        timeout: 60000,
+        maxRetries: modelFallbackChain.length,
+        autoFallback: true // Enable fallback mode
+      };
+      
+      console.log(`🚀 Initializing auto-fallback reviewer with ${modelFallbackChain.length} models`);
+      
+      reviewer = new MultiModelReviewer(
+        {
+          anthropic: hasClaudeCode ? undefined : apiKey,
+          gemini: geminiApiKey
+        },
+        hasClaudeCode,
+        fallbackConfig
+      );
+      
+    } else if (useMultiModel || comparisonMode) {
+      // Multi-model reviewer
+      const geminiApiKey = config.geminiApiKey || process.env.GEMINI_API_KEY;
       
       // Configure multi-model settings
       const multiModelConfig = {
@@ -264,11 +386,33 @@ async function main() {
       );
     } else {
       // Traditional single model reviewer
-      reviewer = new CodeReviewer(
-        hasClaudeCode ? undefined : apiKey,
-        hasClaudeCode,
-        !noCache
-      );
+      const targetModel = specificModel || modelFallbackChain[0] || 'claude-sonnet';
+      
+      if (targetModel.startsWith('gemini-')) {
+        // For Gemini-only mode, use MultiModelReviewer with Gemini config
+        const geminiApiKey = config.geminiApiKey || process.env.GEMINI_API_KEY;
+        const geminiConfig = {
+          primaryModel: targetModel,
+          comparisonMode: false,
+          timeout: 60000
+        };
+        
+        reviewer = new MultiModelReviewer(
+          {
+            anthropic: undefined, // No Claude needed
+            gemini: geminiApiKey
+          },
+          false, // No Claude Code
+          geminiConfig
+        );
+      } else {
+        // Traditional Claude reviewer
+        reviewer = new CodeReviewer(
+          hasClaudeCode ? undefined : apiKey,
+          hasClaudeCode,
+          !noCache
+        );
+      }
     }
     
     // Initialize session management
