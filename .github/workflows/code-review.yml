@@ -1,0 +1,165 @@
+name: Code Review Agent
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '**/*.ts'
+      - '**/*.tsx'
+      - '**/*.js'
+      - '**/*.jsx'
+      - '.github/workflows/code-review.yml'
+
+permissions:
+  contents: read
+  pull-requests: write
+  checks: write
+
+jobs:
+  code-review:
+    name: AI Code Review
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Build code review agent
+        run: bun run build
+
+      - name: Get changed files
+        id: changed-files
+        uses: tj-actions/changed-files@v41
+        with:
+          files: |
+            **/*.ts
+            **/*.tsx
+            **/*.js
+            **/*.jsx
+          separator: " "
+
+      - name: Run AI Code Review
+        id: review
+        if: steps.changed-files.outputs.any_changed == 'true'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          # Create results directory
+          mkdir -p review-results
+          
+          # Run review on changed files with CI-optimized settings
+          ./bin/code-review \
+            --template combined \
+            --output json \
+            --output-file review-results/review.json \
+            --no-cache \
+            --allow-dirty \
+            --yes \
+            --ci-mode \
+            ${{ steps.changed-files.outputs.all_changed_files }}
+          
+          # Extract key metrics for GitHub outputs
+          TOTAL_FILES=$(jq '.metadata.totalFiles' review-results/review.json)
+          FILES_WITH_ISSUES=$(jq '.metadata.filesWithIssues' review-results/review.json)
+          CRITICAL_ISSUES=$(jq '[.results[] | select(.feedback | contains("Critical") or contains("🚨"))] | length' review-results/review.json)
+          HIGH_ISSUES=$(jq '[.results[] | select(.feedback | contains("High") or contains("⚠️"))] | length' review-results/review.json)
+          
+          echo "total_files=$TOTAL_FILES" >> $GITHUB_OUTPUT
+          echo "files_with_issues=$FILES_WITH_ISSUES" >> $GITHUB_OUTPUT
+          echo "critical_issues=$CRITICAL_ISSUES" >> $GITHUB_OUTPUT
+          echo "high_issues=$HIGH_ISSUES" >> $GITHUB_OUTPUT
+          
+          # Set job status based on issues
+          if [ "$CRITICAL_ISSUES" -gt 0 ]; then
+            echo "review_status=critical" >> $GITHUB_OUTPUT
+            echo "status_message=🚨 Critical security/quality issues found" >> $GITHUB_OUTPUT
+          elif [ "$HIGH_ISSUES" -gt 0 ]; then
+            echo "review_status=warning" >> $GITHUB_OUTPUT
+            echo "status_message=⚠️ High priority issues found" >> $GITHUB_OUTPUT
+          elif [ "$FILES_WITH_ISSUES" -gt 0 ]; then
+            echo "review_status=info" >> $GITHUB_OUTPUT
+            echo "status_message=💡 Minor issues found" >> $GITHUB_OUTPUT
+          else
+            echo "review_status=success" >> $GITHUB_OUTPUT
+            echo "status_message=✅ All files clean!" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Upload review results
+        if: steps.changed-files.outputs.any_changed == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: code-review-results
+          path: review-results/
+          retention-days: 30
+
+      - name: Generate PR comment
+        if: steps.changed-files.outputs.any_changed == 'true'
+        id: comment
+        run: |
+          node .github/scripts/generate-pr-comment.js review-results/review.json > review-results/pr-comment.md
+
+      - name: Comment on PR
+        if: steps.changed-files.outputs.any_changed == 'true'
+        uses: thollander/actions-comment-pull-request@v2
+        with:
+          filePath: review-results/pr-comment.md
+          comment_tag: code-review-agent
+
+      - name: Create check run
+        if: steps.changed-files.outputs.any_changed == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const reviewData = JSON.parse(fs.readFileSync('review-results/review.json', 'utf8'));
+            const status = '${{ steps.review.outputs.review_status }}';
+            
+            let conclusion;
+            switch(status) {
+              case 'critical':
+                conclusion = 'failure';
+                break;
+              case 'warning':
+                conclusion = 'neutral';
+                break;
+              case 'info':
+                conclusion = 'neutral';
+                break;
+              default:
+                conclusion = 'success';
+            }
+            
+            await github.rest.checks.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              name: 'AI Code Review',
+              head_sha: context.sha,
+              status: 'completed',
+              conclusion: conclusion,
+              output: {
+                title: '${{ steps.review.outputs.status_message }}',
+                summary: `Reviewed ${reviewData.metadata.totalFiles} files, found issues in ${reviewData.metadata.filesWithIssues} files`,
+                text: `## Summary\n- Critical Issues: ${{ steps.review.outputs.critical_issues }}\n- High Priority: ${{ steps.review.outputs.high_issues }}\n- Files Reviewed: ${{ steps.review.outputs.total_files }}\n- Files with Issues: ${{ steps.review.outputs.files_with_issues }}`
+              }
+            });
+
+      - name: Fail on critical issues
+        if: steps.review.outputs.critical_issues > 0
+        run: |
+          echo "❌ Build failed due to ${{ steps.review.outputs.critical_issues }} critical issues"
+          echo "Please fix critical security or quality issues before merging."
+          exit 1
+
+      - name: Skip review message  
+        if: steps.changed-files.outputs.any_changed == 'false'
+        run: echo "ℹ️ No reviewable files changed, skipping AI code review"
