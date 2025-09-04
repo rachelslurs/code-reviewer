@@ -11,6 +11,9 @@ out/
 # Bun build temporary files
 .*.bun-build
 
+# Test files are kept for demonstration
+# test-files/ - intentionally tracked
+
 # Environment variables
 .env
 .env.local

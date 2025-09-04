@@ -24,13 +24,10 @@ export class CodeReviewer {
   private useClaudeCode: boolean;
 
   constructor(apiKey?: string, forceClaudeCode?: boolean) {
-    console.log(`🛠️  Debug: CodeReviewer constructor called with apiKey: ${apiKey ? 'provided' : 'undefined'}, forceClaudeCode: ${forceClaudeCode}`);
-    
     this.tokenTracker = new TokenTracker();
     
     // Use the forceClaudeCode flag if provided, otherwise check authentication
     this.useClaudeCode = forceClaudeCode || this.checkClaudeCodeAuth();
-    console.log(`🛠️  Debug: Claude Code will be used: ${this.useClaudeCode}`);
     
     if (this.useClaudeCode) {
       console.log('✅ Using Claude Code authentication');
@@ -38,7 +35,6 @@ export class CodeReviewer {
       console.log('🔑 Using API key authentication');
       this.anthropic = new Anthropic({ apiKey });
     } else {
-      console.log('❌ No authentication method available');
       throw new Error('No authentication method available. Either authenticate with Claude Code or provide an API key.');
     }
   }
@@ -76,6 +72,8 @@ export class CodeReviewer {
     template: ReviewTemplate
   ): Promise<ReviewResult> {
     console.log(`\n🔍 Reviewing ${file.relativePath} with ${template.name} template...`);
+    console.log(`   Template: ${template.description}`);
+    console.log(`   File size: ${this.formatBytes(file.size)} (estimated processing time: 30-90 seconds)`);
 
     if (this.useClaudeCode) {
       return this.reviewWithClaudeCode(file, template);
@@ -102,7 +100,7 @@ export class CodeReviewer {
         encoding: 'utf8',
         maxBuffer: 1024 * 1024 * 10, // 10MB buffer
         stdio: 'pipe',
-        timeout: 60000 // 60 second timeout
+        timeout: 120000 // 2 minutes timeout (was 60 seconds)
       });
 
       // Clean up temp file

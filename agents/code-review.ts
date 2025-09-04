@@ -6,6 +6,9 @@ import { GitManager } from '../src/utils/git.js';
 import { FileScanner } from '../src/core/file-scanner.js';
 import { CodeReviewer } from '../src/core/reviewer.js';
 import { qualityTemplate } from '../src/templates/quality.js';
+import { securityTemplate } from '../src/templates/security.js';
+import { performanceTemplate } from '../src/templates/performance.js';
+import { typescriptTemplate } from '../src/templates/typescript.js';
 
 async function main() {
   const args = process.argv.slice(2);
@@ -52,19 +55,30 @@ async function main() {
     console.log('🔑 Using direct API key');
   }
 
-  // Parse arguments
-  const targetPath = args.find(arg => !arg.startsWith('--')) || '.';
-  const template = args.includes('--template') 
-    ? args[args.indexOf('--template') + 1] 
-    : config.defaultTemplate;
+  // Parse arguments more carefully
+  const templateIndex = args.indexOf('--template');
+  let template = config.defaultTemplate;
+  if (templateIndex !== -1 && templateIndex < args.length - 1) {
+    template = args[templateIndex + 1];
+  }
+  
+  // Remove template args to find the target path
+  const filteredArgs = args.filter((arg, index) => {
+    if (arg === '--template') return false;
+    if (templateIndex !== -1 && index === templateIndex + 1) return false;
+    return !arg.startsWith('--') && arg !== '-y';
+  });
+  
+  const targetPath = filteredArgs[0] || '.';
   
   // Check for git override flags
   const allowDirty = args.includes('--allow-dirty') || args.includes('--no-git-check');
   const effectiveRequireCleanGit = config.requireCleanGit && !allowDirty;
 
   // Validate template
-  if (template !== 'quality') {
-    console.error(`❌ Template '${template}' not yet implemented. Available: quality`);
+  const availableTemplates = ['quality', 'security', 'performance', 'typescript', 'all'];
+  if (!availableTemplates.includes(template)) {
+    console.error(`❌ Template '${template}' not available. Available templates: ${availableTemplates.join(', ')}`);
     process.exit(1);
   }
 
@@ -120,23 +134,32 @@ async function main() {
       hasClaudeCode ? undefined : apiKey,
       hasClaudeCode // Pass the authentication status
     );
-    const reviewTemplate = qualityTemplate; // Only quality for now
-
-    const results = await reviewer.reviewMultipleFiles(
-      scanResult.files,
-      reviewTemplate,
-      (current, total, result) => {
-        const status = result.hasIssues ? '🔍 Issues found' : '✅ Clean';
-        console.log(`[${current}/${total}] ${result.filePath}: ${status}`);
-      }
-    );
+    
+    // Select review template(s)
+    const templates = getTemplates(template);
+    const allResults: any[] = [];
+    
+    for (const reviewTemplate of templates) {
+      console.log(`\n🎆 Running ${reviewTemplate.name} review...`);
+      
+      const results = await reviewer.reviewMultipleFiles(
+        scanResult.files,
+        reviewTemplate,
+        (current, total, result) => {
+          const status = result.hasIssues ? '🔍 Issues found' : '✅ Clean';
+          console.log(`[${current}/${total}] ${result.filePath}: ${status}`);
+        }
+      );
+      
+      allResults.push(...results);
+    }
 
     // Print results
     console.log('\n' + '='.repeat(80));
     console.log('📝 REVIEW RESULTS');
     console.log('='.repeat(80));
 
-    results.forEach((result, index) => {
+    allResults.forEach((result, index) => {
       console.log(`\n${index + 1}. ${result.filePath}`);
       console.log(`   Template: ${result.template}`);
       console.log(`   Status: ${result.hasIssues ? '🔍 Issues found' : '✅ Clean'}`);
@@ -146,7 +169,7 @@ async function main() {
       console.log('-'.repeat(60));
     });
 
-    reviewer.printReviewSummary(results);
+    reviewer.printReviewSummary(allResults);
 
   } catch (error) {
     console.error('❌ Error during review:', error);
@@ -292,6 +315,23 @@ async function askConfirmation(question: string, defaultValue: boolean = true): 
       }
     });
   });
+}
+
+function getTemplates(templateName: string) {
+  switch (templateName) {
+    case 'quality':
+      return [qualityTemplate];
+    case 'security':
+      return [securityTemplate];
+    case 'performance':
+      return [performanceTemplate];
+    case 'typescript':
+      return [typescriptTemplate];
+    case 'all':
+      return [qualityTemplate, securityTemplate, performanceTemplate, typescriptTemplate];
+    default:
+      throw new Error(`Unknown template: ${templateName}`);
+  }
 }
 
 function checkClaudeCodeAuth(): boolean {
