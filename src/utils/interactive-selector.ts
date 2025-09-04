@@ -30,20 +30,50 @@ export class InteractiveSelector {
     console.log('  • "quit" or "q" - cancel');
     console.log('  • "help" or "h" - show this help');
     
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
+      let isActive = true;
+      let cleanupDone = false;
+      
+      const cleanup = () => {
+        if (cleanupDone) return;
+        cleanupDone = true;
+        
+        try {
+          if (process.stdin.isTTY) {
+            process.stdin.setRawMode(false);
+          }
+          process.stdin.pause();
+          process.stdin.removeListener('data', onData);
+          process.removeListener('exit', cleanup);
+          process.removeListener('SIGINT', cleanup);
+          process.removeListener('SIGTERM', cleanup);
+        } catch (error) {
+          // Ignore cleanup errors
+        }
+      };
+      
+      const safeExit = (result: SelectionResult) => {
+        if (!isActive) return;
+        isActive = false;
+        cleanup();
+        resolve(result);
+      };
+      
       const handleInput = (input: string) => {
+        if (!isActive) return;
+        
         const command = input.trim().toLowerCase();
         
         if (command === 'review' || command === 'r') {
           const selectedFiles = files.filter((_, index) => selections.get(index));
           console.log(`\n🚀 Starting review of ${selectedFiles.length} selected files...\n`);
-          resolve({ selectedFiles, cancelled: false });
+          safeExit({ selectedFiles, cancelled: false });
           return;
         }
         
         if (command === 'quit' || command === 'q') {
           console.log('\n❌ Review cancelled');
-          resolve({ selectedFiles: [], cancelled: true });
+          safeExit({ selectedFiles: [], cancelled: true });
           return;
         }
         
@@ -53,6 +83,7 @@ export class InteractiveSelector {
           console.log('\n📁 Select files to review:\n');
           this.displayFileList(files, selections);
           this.showCommands();
+          this.promptForInput();
           return;
         }
         
@@ -62,11 +93,13 @@ export class InteractiveSelector {
           console.log('\n📁 Select files to review:\n');
           this.displayFileList(files, selections);
           this.showCommands();
+          this.promptForInput();
           return;
         }
         
         if (command === 'help' || command === 'h') {
           this.showCommands();
+          this.promptForInput();
           return;
         }
         
@@ -76,31 +109,26 @@ export class InteractiveSelector {
           console.log('\n📁 Select files to review:\n');
           this.displayFileList(files, selections);
           this.showCommands();
+          this.promptForInput();
         } else {
           console.log('❌ Invalid input. Type "help" for commands.');
+          this.promptForInput();
         }
       };
 
-      // Simple input handling for Node.js
-      process.stdin.setRawMode(true);
-      process.stdin.resume();
-      process.stdin.setEncoding('utf8');
-      
-      console.log('\n> ');
-      process.stdout.write('Type command: ');
-      
       const onData = (key: string) => {
+        if (!isActive) return;
+        
         if (key === '\u0003') { // Ctrl+C
-          process.exit();
+          console.log('\n❌ Review cancelled (Ctrl+C)');
+          safeExit({ selectedFiles: [], cancelled: true });
+          return;
         }
         
         if (key === '\r' || key === '\n') {
           console.log('');
           handleInput(currentInput);
           currentInput = '';
-          if (process.stdin.readable) {
-            process.stdout.write('Type command: ');
-          }
           return;
         }
         
@@ -112,23 +140,38 @@ export class InteractiveSelector {
           return;
         }
         
-        currentInput += key;
-        process.stdout.write(key);
+        // Only accept printable characters
+        if (key.length === 1 && key >= ' ' && key <= '~') {
+          currentInput += key;
+          process.stdout.write(key);
+        }
       };
       
-      process.stdin.on('data', onData);
-      
-      // Cleanup function
-      const cleanup = () => {
-        process.stdin.setRawMode(false);
-        process.stdin.pause();
-        process.stdin.removeListener('data', onData);
-      };
-      
-      // Ensure cleanup happens
-      process.on('exit', cleanup);
-      process.on('SIGINT', cleanup);
+      // Setup input handling
+      try {
+        if (process.stdin.isTTY) {
+          process.stdin.setRawMode(true);
+        }
+        process.stdin.resume();
+        process.stdin.setEncoding('utf8');
+        process.stdin.on('data', onData);
+        
+        // Setup cleanup handlers
+        process.on('exit', cleanup);
+        process.on('SIGINT', cleanup);
+        process.on('SIGTERM', cleanup);
+        
+        this.promptForInput();
+        
+      } catch (error) {
+        cleanup();
+        reject(new Error(`Failed to setup interactive input: ${error}`));
+      }
     });
+  }
+  
+  private static promptForInput(): void {
+    process.stdout.write('\nType command: ');
   }
   
   private static displayFileList(files: FileInfo[], selections: Map<number, boolean>): void {
