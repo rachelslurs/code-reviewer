@@ -101,6 +101,9 @@ code-review --watch --template combined ./src
 
 # Check model status and rate limits
 code-review --status
+
+# Note: Status shows usage from this tool only, not account-wide
+# Check provider dashboards for complete usage data
 ```
 
 ### Multi-Model Usage
@@ -192,6 +195,9 @@ code-review --status
 ================================================================================
 📅 Generated: 9/4/2025, 2:45:30 PM
 
+⚠️  IMPORTANT: This shows usage from this tool only, not account-wide usage
+📊 Check provider dashboards for complete usage across all applications
+
 🔹 Claude Models (Anthropic)
 ----------------------------------------
 ✅ Claude 3.5 Sonnet
@@ -219,9 +225,16 @@ code-review --status
    ⏰ Rate Limited: 1 models
    ❌ Unavailable: 0 models
 
+🔗 Provider Usage Dashboards:
+   📊 Anthropic (Claude): https://console.anthropic.com/settings/usage
+   📊 Google (Gemini): https://aistudio.google.com/app/apikey
+   📊 Claude Code: No usage dashboard (subscription-based)
+
 💡 Recommendations:
    💡 Use free models: Gemini 1.5 Flash
    ⏰ Rate limits reset in 23s
+   📊 Note: Rate limits may be lower due to external API usage
+================================================================================
 ```
 
 ### Status Indicators
@@ -238,6 +251,30 @@ The status checker automatically tracks:
 - **Cost tracking**: Real-time cost estimates for paid models
 - **Rate limit cooldowns**: Time until limits reset
 - **Model recommendations**: Suggests best available models
+
+⚠️  **Important Limitation**: This tool only tracks usage from the `code-review` command itself, not your entire account usage across all applications.
+
+### What It Tracks ✅
+- API calls made by this code review tool
+- Tokens used during reviews in this tool  
+- Rate limits based on this tool's usage patterns
+- Cost estimates for work done in this tool
+
+### What It Doesn't Track ❌
+- Usage from claude.ai web interface
+- Usage from other applications using your API keys
+- Usage from Claude Code in other contexts
+- Gemini usage in Google AI Studio or other apps
+- Server-side rate limit state from providers
+
+### Complete Usage Data
+
+For account-wide usage across all applications:
+- **Claude**: [Anthropic Console Usage Dashboard](https://console.anthropic.com/settings/usage)
+- **Gemini**: [Google AI Studio API Usage](https://aistudio.google.com/app/apikey)  
+- **Claude Code**: No usage dashboard (subscription-based)
+
+⚠️  **Real-world Impact**: If you're using Claude/Gemini heavily elsewhere, you might see "Available" in our status but still hit rate limits when making calls. Always check provider dashboards for complete usage data.
 
 ### Integration with Reviews
 
