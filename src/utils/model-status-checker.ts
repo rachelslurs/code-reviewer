@@ -199,6 +199,10 @@ export class ModelStatusChecker {
     console.log('\n🤖 AI Model Status Report');
     console.log('='.repeat(80));
     console.log(`📅 Generated: ${new Date().toLocaleString()}`);
+    
+    // Add important disclaimer
+    console.log('\n⚠️  IMPORTANT: This shows usage from this tool only, not account-wide usage');
+    console.log('📊 Check provider dashboards for complete usage across all applications\n');
     console.log();
 
     // Group by provider
@@ -228,6 +232,13 @@ export class ModelStatusChecker {
     console.log(`   ✅ Available: ${available} models`);
     console.log(`   ⏰ Rate Limited: ${rateLimited} models`);
     console.log(`   ❌ Unavailable: ${unavailable} models`);
+    
+    // Add provider dashboard links
+    console.log('\n🔗 Provider Usage Dashboards:');
+    console.log('   📊 Anthropic (Claude): https://console.anthropic.com/settings/usage');
+    console.log('   📊 Google (Gemini): https://aistudio.google.com/app/apikey');
+    console.log('   📊 Claude Code: No usage dashboard (subscription-based)');
+    
     console.log('='.repeat(80));
   }
 
@@ -285,6 +296,7 @@ export class ModelStatusChecker {
     
     if (available.length === 0) {
       recommendations.push('⚠️ No models currently available - wait for rate limits to reset');
+      recommendations.push('🔍 Check if you\'re hitting limits in other applications');
     } else if (freeAvailable.length > 0) {
       recommendations.push(`💡 Use free models: ${freeAvailable.map(s => s.modelName).join(', ')}`);
     }
@@ -302,6 +314,8 @@ export class ModelStatusChecker {
       if (nextAvailable < Infinity) {
         recommendations.push(`⏰ Rate limits reset in ${nextAvailable}s`);
       }
+      
+      recommendations.push('📊 Note: Rate limits may be lower due to external API usage');
     }
     
     return recommendations;
