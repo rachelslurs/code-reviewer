@@ -4,10 +4,11 @@ import { join } from 'path';
 export interface CodeReviewConfig {
   apiKey?: string;
   maxFileSize: number;
-  outputFormat: 'terminal' | 'markdown' | 'json';
-  defaultTemplate: 'security' | 'performance' | 'quality' | 'typescript' | 'all';
+  outputFormat: 'terminal' | 'markdown' | 'json' | 'html';
+  defaultTemplate: 'security' | 'performance' | 'quality' | 'typescript' | 'combined' | 'all';
   ignorePatterns: string[];
   requireCleanGit: boolean;
+  outputFile?: string; // Optional output file path
 }
 
 export const DEFAULT_CONFIG: CodeReviewConfig = {

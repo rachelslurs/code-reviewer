@@ -10,6 +10,7 @@ import { securityTemplate } from '../src/templates/security.js';
 import { performanceTemplate } from '../src/templates/performance.js';
 import { typescriptTemplate } from '../src/templates/typescript.js';
 import { combinedTemplate } from '../src/templates/combined.js';
+import { OutputFormatter } from '../src/utils/output-formatter.js';
 
 async function main() {
   const args = process.argv.slice(2);
@@ -17,18 +18,18 @@ async function main() {
   // Handle help
   if (args.includes('--help') || args.includes('-h')) {
     printHelp();
-    return;
+    process.exit(0);
   }
 
   // Handle config commands
   if (args.includes('--config')) {
     showConfig();
-    return;
+    process.exit(0);
   }
 
   if (args.includes('--setup')) {
     await setupWizard();
-    return;
+    process.exit(0);
   }
 
   // Load config
@@ -63,10 +64,28 @@ async function main() {
     template = args[templateIndex + 1];
   }
   
-  // Remove template args to find the target path
+  // Parse output format
+  const outputIndex = args.indexOf('--output');
+  let outputFormat = config.outputFormat;
+  if (outputIndex !== -1 && outputIndex < args.length - 1) {
+    outputFormat = args[outputIndex + 1] as 'terminal' | 'markdown' | 'json' | 'html';
+  }
+  
+  // Parse output file
+  const outputFileIndex = args.indexOf('--output-file');
+  let outputFile = config.outputFile;
+  if (outputFileIndex !== -1 && outputFileIndex < args.length - 1) {
+    outputFile = args[outputFileIndex + 1];
+  }
+  
+  // Remove format args to find the target path
   const filteredArgs = args.filter((arg, index) => {
     if (arg === '--template') return false;
     if (templateIndex !== -1 && index === templateIndex + 1) return false;
+    if (arg === '--output') return false;
+    if (outputIndex !== -1 && index === outputIndex + 1) return false;
+    if (arg === '--output-file') return false;
+    if (outputFileIndex !== -1 && index === outputFileIndex + 1) return false;
     return !arg.startsWith('--') && arg !== '-y';
   });
   
@@ -114,7 +133,7 @@ async function main() {
     
     if (scanResult.files.length === 0) {
       console.log('❌ No reviewable files found.');
-      return;
+      process.exit(0);
     }
 
     scanner.printScanSummary(scanResult);
@@ -126,7 +145,7 @@ async function main() {
       );
       if (!shouldContinue) {
         console.log('Review cancelled.');
-        return;
+        process.exit(0);
       }
     }
 
@@ -156,17 +175,38 @@ async function main() {
       allResults.push(...results);
     }
 
-    // Skip detailed results since we're streaming them
-    console.log('\n' + '='.repeat(80));
-    console.log('📊 FINAL SUMMARY (Detailed results streamed above)');
-    console.log('='.repeat(80));
-
-    reviewer.printReviewSummary(allResults);
+    // Handle results based on output format
+    if (outputFormat === 'terminal') {
+      // Skip detailed results since we're streaming them
+      console.log('\n' + '='.repeat(80));
+      console.log('📊 FINAL SUMMARY (Detailed results streamed above)');
+      console.log('='.repeat(80));
+      reviewer.printReviewSummary(allResults);
+    } else {
+      // For non-terminal formats, save to file
+      console.log('\n' + '='.repeat(80));
+      console.log(`📊 GENERATING ${outputFormat.toUpperCase()} REPORT`);
+      console.log('='.repeat(80));
+      
+      await OutputFormatter.saveResults(allResults, {
+        format: outputFormat,
+        outputFile: outputFile,
+        includeMetadata: true
+      });
+      
+      reviewer.printReviewSummary(allResults);
+    }
 
   } catch (error) {
     console.error('❌ Error during review:', error);
     process.exit(1);
   }
+
+  // Ensure clean exit
+  setTimeout(() => {
+    console.log('\n✅ Review completed successfully!');
+    process.exit(0);
+  }, 500); // Give a brief moment for any final operations
 }
 
 function printHelp(): void {
@@ -391,4 +431,7 @@ function checkClaudeCodeAuth(): boolean {
 }
 
 // Run the main function
-main().catch(console.error);
+main().catch(error => {
+  console.error('Fatal error:', error);
+  process.exit(1);
+});
