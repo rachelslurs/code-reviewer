@@ -1,198 +1,448 @@
 # Code Review Agent
 
-An AI-powered code review CLI tool that uses Claude to analyze your code for quality, security, performance, and TypeScript issues.
+An AI-powered code review CLI tool that provides intelligent, multi-model code analysis with advanced features like caching, multi-model support, and CI/CD integration.
 
-## Features
+## ✨ Features
 
-- 🤖 **AI-Powered Reviews**: Uses Claude for intelligent code analysis
-- 🔐 **Claude Code Integration**: Prioritizes your Claude Code subscription authentication
-- 🎯 **Multiple Templates**: Quality, security, performance, and TypeScript-focused reviews
-- 📂 **Smart File Filtering**: Automatically skips non-reviewable files and common ignore patterns
-- ⚡ **Rate Limiting**: Built-in token tracking and rate limit handling
-- 🌿 **Git Integration**: Requires clean working directory before reviews
-- 📊 **Progress Tracking**: Real-time review progress and token usage
-- ⚙️ **Configurable**: Interactive setup wizard and configuration file support
+### 🤖 **Multi-Model AI Support**
+- **Smart Model Selection**: Automatically chooses the best AI model for each review type
+- **Claude Integration**: Supports both Claude Code (subscription) and API key authentication
+- **Gemini Integration**: Google's Gemini models for enhanced code analysis
+- **Intelligent Fallbacks**: Automatically switches models if one fails or hits rate limits
+- **Token Estimation**: Pre-calculates token usage and costs before API calls
 
-## Installation & Setup
+### 🎯 **Comprehensive Review Templates**
+- **Quality**: Code organization, naming, duplication, complexity, error handling
+- **Security**: Vulnerabilities, data validation, injection attacks, authentication issues
+- **Performance**: Bundle size optimization, async patterns, memory usage
+- **TypeScript**: Type safety, strict mode compliance, generic usage
+- **Combined**: Single comprehensive review combining all aspects (4x faster than running all templates)
+
+### ⚡ **Performance & Efficiency**
+- **Smart Caching**: Only reviews changed files, massive speedup for large codebases
+- **Parallel Processing**: Reviews multiple files simultaneously with configurable concurrency
+- **Incremental Reviews**: Only review files changed since last commit/branch
+- **Resume Functionality**: Continue interrupted reviews from where you left off
+- **Rate Limit Handling**: Intelligent API rate limit management and fallbacks
+
+### 🛠 **Developer Experience**
+- **Interactive Mode**: Choose specific files to review with visual selection
+- **Watch Mode**: Continuously monitor files for changes and auto-review
+- **Multiple Output Formats**: Terminal, Markdown, JSON, and HTML reports
+- **Progress Streaming**: Real-time results as each file completes
+- **CI/CD Integration**: GitHub Actions workflow with PR comments
+
+### 🔧 **Advanced Features**
+- **Git Integration**: Smart git status checking and branch-aware reviews
+- **Session Management**: Save and resume long review sessions
+- **Custom Configuration**: Project-specific settings and ignore patterns
+- **Token Tracking**: Detailed usage analytics and cost estimation
+
+## 🚀 Installation & Setup
 
 ### Prerequisites
 - [Bun](https://bun.sh) installed
-- Claude Code CLI installed (recommended) OR Anthropic API key
+- **For Claude**: Claude Code CLI (recommended) OR Anthropic API key
+- **For Gemini**: Google AI Studio API key (optional but recommended)
 
-### For others to use your tool:
+### Quick Start
 
 1. **Clone and install:**
    ```bash
    git clone <your-repo-url>
    cd code-review-agent
-   bun install
+   bun install && bun run build
    ```
 
-2. **Authenticate (choose one):**
+2. **Set up authentication:**
    
-   **Option A - Claude Code (Recommended):**
+   **Claude Code (Recommended - uses your subscription):**
    ```bash
    claude setup-token
-   # Follow the prompts to authenticate with your subscription
    ```
    
-   **Option B - API Key:**
+   **API Keys:**
    ```bash
-   # Set environment variable
-   export ANTHROPIC_API_KEY="your-key-here"
-   
-   # OR use interactive setup
-   bun run agents/code-review.ts --setup
+   export ANTHROPIC_API_KEY="your-claude-key"
+   export GEMINI_API_KEY="your-gemini-key"  # Optional but recommended
    ```
 
-3. **Build the executable:**
+3. **Test the installation:**
    ```bash
-   bun run build
+   ./bin/code-review --help
    ```
 
-4. **Use the tool:**
+4. **Optional - Add to PATH:**
    ```bash
-   # Review a single file
-   bin/code-review path/to/file.ts
-   
-   # Review a directory
-   bin/code-review ./src
-   
-   # Check configuration
-   bin/code-review --config
+   echo 'export PATH="$PATH:'$(pwd)'/bin"' >> ~/.zshrc
+   source ~/.zshrc
    ```
 
-5. **Optional - Add to PATH:**
-   ```bash
-   # Add to your shell profile (~/.zshrc, ~/.bashrc, etc.)
-   export PATH="$PATH:/path/to/code-review-agent/bin"
-   
-   # Then use globally:
-   code-review ./src
-   ```
+## 📖 Usage Guide
 
-## Usage
-
-### Command Syntax
+### Basic Commands
 
 ```bash
-code-review [path] [options]
-```
-
-### Arguments
-
-- **`path`** - Path to file or directory to review (default: current directory)
-
-### Options
-
-| Option | Short | Description |
-|--------|-------|-------------|
-| `--template <name>` | | Review template to use (default: quality)<br/>Available: `quality` |
-| `--yes` | `-y` | Skip confirmation prompt |
-| `--allow-dirty` | | Allow review with uncommitted git changes |
-| `--no-git-check` | | Same as `--allow-dirty` |
-| `--config` | | Show current configuration |
-| `--setup` | | Run interactive setup wizard |
-| `--help` | `-h` | Show help message |
-
-### Examples
-
-```bash
-# Review current directory
-code-review
-
-# Review specific directory
+# Quick quality review
 code-review ./src
 
-# Review single file
-code-review component.tsx
+# Comprehensive multi-model review  
+code-review --multi-model --template combined ./src
 
-# Use specific template
-code-review --template quality ./src
+# Security-focused review
+code-review --template security --allow-dirty ./
 
-# Skip confirmation prompt
-code-review --yes ./src
+# Interactive file selection
+code-review --interactive --template quality ./src
 
-# Allow review with uncommitted changes
-code-review --allow-dirty ./src
-
-# Combine multiple options
-code-review --template quality --yes --allow-dirty ./src
-
-# Show help
-code-review --help
-
-# Check configuration
-code-review --config
-
-# Interactive setup
-code-review --setup
+# Watch mode for continuous development
+code-review --watch --template combined ./src
 ```
 
-### Review Templates
+### Multi-Model Usage
 
-- **`quality`** (default): Code organization, naming, duplication, complexity, error handling
-- **`security`**: Security vulnerabilities, data validation, authentication issues *(coming soon)*
-- **`performance`**: Bundle size, optimization, async patterns *(coming soon)*
-- **`typescript`**: Type safety, strict mode compliance, error fixes *(coming soon)*
-- **`all`**: Run all templates sequentially *(coming soon)*
+```bash
+# Smart model selection (automatic)
+code-review --multi-model --template quality ./src
 
-## Configuration
+# Compare multiple models on same code
+code-review --compare-models --template security file.ts
 
-Configuration is stored in `.codereview.json` in your project root:
+# Force specific model
+code-review --multi-model --model gemini-flash ./src
+
+# CI/CD optimized mode
+code-review --multi-model --ci-mode --template combined ./src
+```
+
+### Advanced Workflows
+
+```bash
+# Incremental review (only changed files)
+code-review --incremental --template combined ./
+
+# Compare with specific branch
+code-review --incremental --compare-with main --template security ./
+
+# Resume interrupted review
+code-review --resume ./src
+
+# Generate reports
+code-review --template combined --output markdown --output-file report.md ./src
+```
+
+## ⚙️ Command Reference
+
+### Core Options
+
+| Option | Description | Example |
+|--------|-------------|---------|
+| `--template <name>` | Review template: `quality`, `security`, `performance`, `typescript`, `combined`, `all` | `--template security` |
+| `--multi-model` | Enable smart multi-model selection | `--multi-model` |
+| `--compare-models` | Compare results from multiple AI models | `--compare-models` |
+| `--model <name>` | Force specific model: `claude-sonnet`, `claude-haiku`, `gemini-pro`, `gemini-flash` | `--model gemini-flash` |
+
+### Output & Format
+
+| Option | Description | Example |
+|--------|-------------|---------|
+| `--output <format>` | Output format: `terminal`, `markdown`, `json`, `html` | `--output markdown` |
+| `--output-file <path>` | Save results to file | `--output-file report.md` |
+| `--interactive`, `-i` | Interactive file selection | `--interactive` |
+| `--watch`, `-w` | Watch mode for continuous review | `--watch` |
+
+### Performance & Efficiency
+
+| Option | Description | Example |
+|--------|-------------|---------|
+| `--incremental` | Only review changed files | `--incremental` |
+| `--compare-with <ref>` | Compare with branch/commit | `--compare-with main` |
+| `--resume` | Resume interrupted review session | `--resume` |
+| `--no-cache` | Disable caching | `--no-cache` |
+| `--clear-cache` | Clear review cache | `--clear-cache` |
+
+### CI/CD & Automation
+
+| Option | Description | Example |
+|--------|-------------|---------|
+| `--ci-mode` | CI-optimized mode (no prompts, exit codes) | `--ci-mode` |
+| `--yes`, `-y` | Skip confirmation prompts | `--yes` |
+| `--allow-dirty` | Allow uncommitted changes | `--allow-dirty` |
+
+## 🎯 Review Templates
+
+### Quality Review
+**Best for**: Daily code review, maintainability
+**Model**: Gemini Flash (fast, detailed)
+```bash
+code-review --template quality ./src
+```
+- Code organization and structure
+- Naming conventions and clarity
+- Code duplication detection
+- Complexity analysis
+- Error handling patterns
+
+### Security Review  
+**Best for**: Production deployments, security audits
+**Model**: Claude Sonnet (excellent vulnerability detection)
+```bash
+code-review --template security ./src
+```
+- SQL injection vulnerabilities
+- XSS and input validation
+- Authentication/authorization flaws
+- Information disclosure risks
+- Command injection detection
+
+### Performance Review
+**Best for**: Optimization, bundle size reduction
+**Model**: Gemini Flash (great optimization suggestions)  
+```bash
+code-review --template performance ./src
+```
+- Bundle size optimization
+- Async operation efficiency
+- Memory usage patterns
+- Algorithm complexity analysis
+- React rendering optimization
+
+### TypeScript Review
+**Best for**: Type safety, migration to strict mode
+**Model**: Gemini Flash (fast type checking)
+```bash
+code-review --template typescript ./src
+```
+- Type safety improvements
+- Generic usage optimization
+- Interface vs type decisions
+- Strict mode compliance
+- Type assertion safety
+
+### Combined Review (⭐ Recommended)
+**Best for**: Comprehensive analysis in single pass
+**Model**: Claude Sonnet (best overall analysis)
+```bash
+code-review --template combined ./src
+```
+- All review types in one API call
+- 4x faster than running all templates separately
+- Integrated analysis across dimensions
+- Priority-based issue ranking
+
+## 🔧 Configuration
+
+### Project Configuration (`.codereview.json`)
 
 ```json
 {
   "maxFileSize": 51200,
   "outputFormat": "terminal",
-  "defaultTemplate": "quality",
+  "defaultTemplate": "combined",
+  "geminiApiKey": "your-key-here",
   "ignorePatterns": [
     "node_modules/**",
-    ".git/**",
     "dist/**",
-    "build/**",
-    "**/*.{png,jpg,jpeg,gif,svg,ico}"
+    "**/*.test.{ts,js,tsx,jsx}",
+    "**/*.d.ts"
   ],
-  "requireCleanGit": true
+  "requireCleanGit": true,
+  "multiModel": {
+    "primaryModel": "claude-sonnet",
+    "fallbackModels": ["gemini-flash", "claude-haiku"],
+    "templateMappings": {
+      "security": "claude-sonnet",
+      "quality": "gemini-flash",
+      "performance": "gemini-flash", 
+      "typescript": "gemini-flash",
+      "combined": "claude-sonnet"
+    },
+    "comparisonMode": false,
+    "timeout": 60000
+  }
 }
 ```
 
-## Development
+### Model Comparison
 
-### Scripts
+| Model | Best For | Speed | Cost | Token Limits |
+|-------|----------|-------|------|--------------|
+| **Claude Sonnet** | Security, Architecture, Complex analysis | Medium | $3/$15 per 1M tokens | 200K input |
+| **Claude Haiku** | Quick feedback, Simple reviews | Fast | $0.25/$1.25 per 1M tokens | 200K input |  
+| **Gemini Pro** | Detailed analysis, Large files | Medium | Free tier (limited) | 2M input |
+| **Gemini Flash** | Fast reviews, Development workflow | Fast | Free tier (generous) | 1M input |
 
-```bash
-# Run in development mode
-bun run dev
+## 🔄 CI/CD Integration
 
-# Build executable
-bun run build
+### GitHub Actions Setup
 
-# Build and show install instructions
-bun run install-global
+The tool includes a complete GitHub Actions workflow for automated PR reviews:
+
+1. **Add repository secrets:**
+   - `ANTHROPIC_API_KEY` (required)
+   - `GEMINI_API_KEY` (optional but recommended)
+
+2. **The workflow automatically:**
+   - Reviews only changed files in PRs
+   - Posts results as PR comments
+   - Sets build status (pass/fail/warning)
+   - Generates downloadable reports
+
+3. **Example CI usage:**
+   ```bash
+   code-review --ci-mode --template combined --output json --allow-dirty --yes ./src
+   ```
+
+4. **Exit codes:**
+   - `0`: No critical issues (build passes)
+   - `1`: Critical issues found (build fails)
+
+See `CI_CD_GUIDE.md` for complete setup instructions.
+
+## 🧠 Smart Features
+
+### Token Estimation & Cost Control
+
+Before each review, the tool estimates:
+- Input/output token requirements
+- API costs for paid models  
+- Model compatibility and limits
+- Optimal model selection
+
+```
+📊 Token Estimate for gemini-flash:
+   Input tokens: 1,200
+   Output tokens: ~800
+   Total tokens: ~2,000
+   Complexity: medium
+   Cost: Free tier
+   ✅ Fits within model limits
+   🎯 Recommended: gemini-flash (better fit)
 ```
 
-### Adding New Review Templates
+### Incremental Reviews
 
-1. Create a new template in `src/templates/`
-2. Export it from the main CLI
-3. Update the help text and validation
+Only review what changed:
+```bash
+# Review files changed since last commit
+code-review --incremental ./
 
-### Architecture
+# Compare with main branch  
+code-review --incremental --compare-with main ./
 
-- `agents/code-review.ts` - Main CLI entry point
-- `src/core/` - Core functionality (file scanning, reviewing, token tracking)
-- `src/templates/` - Review templates with prompts
-- `src/utils/` - Configuration and Git utilities
+# Include untracked files
+code-review --incremental --include-untracked ./
+```
 
-## License
+### Session Management
 
-MIT
+For large codebases:
+```bash
+# Start review (can be interrupted)
+code-review --template all ./large-project
 
-## Contributing
+# Resume later
+code-review --resume ./large-project
+```
+
+### Interactive Development
+
+```bash
+# Choose specific files
+code-review --interactive ./src
+
+# Continuous development workflow
+code-review --watch --template combined ./src
+```
+
+## 📊 Output Formats
+
+### Terminal (Default)
+Real-time streaming results with progress bars and colored output.
+
+### Markdown Reports
+```bash
+code-review --output markdown --output-file review.md ./src
+```
+Perfect for sharing with team, GitHub issues, or documentation.
+
+### JSON Data
+```bash  
+code-review --output json --output-file results.json ./src
+```
+Structured data for CI/CD pipelines and programmatic processing.
+
+### HTML Reports
+```bash
+code-review --output html --output-file report.html ./src  
+```
+Professional reports with styling, charts, and interactive elements.
+
+## 🛠 Development
+
+### Project Structure
+```
+├── agents/
+│   └── code-review.ts          # Main CLI entry point
+├── src/
+│   ├── core/
+│   │   ├── file-scanner.ts     # File discovery and filtering
+│   │   ├── reviewer.ts         # Single-model reviewer
+│   │   ├── multi-model-reviewer.ts  # Multi-model orchestration
+│   │   └── multi-model-provider.ts  # Model abstraction layer
+│   ├── templates/
+│   │   ├── quality.ts          # Code quality template
+│   │   ├── security.ts         # Security analysis template
+│   │   ├── performance.ts      # Performance optimization template
+│   │   ├── typescript.ts       # TypeScript-specific template
+│   │   └── combined.ts         # Comprehensive template
+│   └── utils/
+│       ├── config.ts           # Configuration management
+│       ├── git.ts              # Git integration utilities
+│       ├── token-estimator.ts  # Smart token estimation
+│       ├── cache-manager.ts    # Review caching system
+│       ├── session-manager.ts  # Resume functionality
+│       ├── output-formatter.ts # Multi-format output
+│       └── file-watcher.ts     # Watch mode implementation
+└── .github/
+    └── workflows/
+        └── code-review.yml     # GitHub Actions integration
+```
+
+### Scripts
+```bash
+# Development
+bun run dev                     # Run in development mode
+bun run build                   # Build executable
+bun install                     # Install dependencies
+
+# Testing  
+bun run build && ./bin/code-review --help
+```
+
+## 🤝 Contributing
 
 1. Fork the repository
-2. Create a feature branch
+2. Create a feature branch: `git checkout -b feature/amazing-feature`
 3. Make your changes
-4. Add tests if applicable
+4. Add tests if applicable  
 5. Submit a pull request
+
+### Adding New Features
+- **New Templates**: Add to `src/templates/` and update CLI validation
+- **New Models**: Add to `AVAILABLE_MODELS` in `multi-model-provider.ts`
+- **New Output Formats**: Extend `OutputFormatter` class
+
+## 📄 License
+
+MIT License - see [LICENSE](LICENSE) for details.
+
+## 🙏 Acknowledgments
+
+- [Anthropic](https://anthropic.com) for Claude API
+- [Google](https://ai.google.dev) for Gemini API  
+- [Bun](https://bun.sh) for the excellent runtime and tooling
+
+---
+
+**Get started today and transform your code quality with AI-powered reviews!** 🚀

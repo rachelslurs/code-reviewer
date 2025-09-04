@@ -11,6 +11,7 @@ import { performanceTemplate } from '../src/templates/performance.js';
 import { typescriptTemplate } from '../src/templates/typescript.js';
 import { combinedTemplate } from '../src/templates/combined.js';
 import { CacheManager } from '../src/utils/cache-manager.js';
+import { MultiModelReviewer } from '../src/core/multi-model-reviewer.js';
 import { OutputFormatter } from '../src/utils/output-formatter.js';
 
 async function main() {
@@ -104,6 +105,14 @@ async function main() {
   
   // Check cache options
   const noCache = args.includes('--no-cache');
+  
+  // Multi-model options
+  const useMultiModel = args.includes('--multi-model');
+  const comparisonMode = args.includes('--compare-models');
+  const modelIndex = args.indexOf('--model');
+  const specificModel = modelIndex !== -1 && modelIndex < args.length - 1 
+    ? args[modelIndex + 1] 
+    : null;
 
   // Validate template
   const availableTemplates = ['quality', 'security', 'performance', 'typescript', 'combined', 'all'];
@@ -159,12 +168,45 @@ async function main() {
       }
     }
 
-    // Start review
-    const reviewer = new CodeReviewer(
-      hasClaudeCode ? undefined : apiKey,
-      hasClaudeCode, // Pass the authentication status
-      !noCache // Enable cache unless --no-cache flag is used
-    );
+    // Start review - choose between single model or multi-model
+    let reviewer: any;
+    
+    if (useMultiModel || comparisonMode) {
+      // Multi-model reviewer
+      const geminiApiKey = config.geminiApiKey || process.env.GEMINI_API_KEY;
+      
+      if (!hasClaudeCode && !apiKey && !geminiApiKey) {
+        console.error('❌ Multi-model mode requires at least one API key');
+        console.error('   Set GEMINI_API_KEY for Gemini models');
+        process.exit(1);
+      }
+      
+      // Configure multi-model settings
+      const multiModelConfig = {
+        ...config.multiModel!,
+        comparisonMode: comparisonMode || config.multiModel!.comparisonMode
+      };
+      
+      if (specificModel) {
+        multiModelConfig.primaryModel = specificModel;
+      }
+      
+      reviewer = new MultiModelReviewer(
+        {
+          anthropic: hasClaudeCode ? undefined : apiKey,
+          gemini: geminiApiKey
+        },
+        hasClaudeCode,
+        multiModelConfig
+      );
+    } else {
+      // Traditional single model reviewer
+      reviewer = new CodeReviewer(
+        hasClaudeCode ? undefined : apiKey,
+        hasClaudeCode,
+        !noCache
+      );
+    }
     
     // Select review template(s)
     const templates = getTemplates(template);

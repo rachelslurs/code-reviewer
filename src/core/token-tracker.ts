@@ -126,4 +126,18 @@ export class TokenTracker {
     
     process.stdout.write('\r✅ Rate limit cleared!            \n');
   }
+
+  // Multi-model compatibility methods
+  addTokens(inputTokens: number, outputTokens: number, provider: string): void {
+    this.recordUsage(inputTokens, outputTokens);
+  }
+
+  getStats(): { totalTokens: number; providerBreakdown: Record<string, number> } {
+    return {
+      totalTokens: this.usage.totalTokens,
+      providerBreakdown: {
+        'total': this.usage.totalTokens
+      }
+    };
+  }
 }
