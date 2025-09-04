@@ -29,17 +29,24 @@ export interface ModelResponse {
   confidence?: number;
 }
 
+// Model versions - update these when Anthropic releases newer versions
+// Check: https://docs.anthropic.com/en/docs/about-claude/model-deprecations
+const CLAUDE_MODELS = {
+  SONNET: 'claude-3-5-sonnet-20241220', // Current stable version
+  HAIKU: 'claude-3-5-haiku-20241220'    // Current stable version
+};
+
 export const AVAILABLE_MODELS: Record<string, ModelProvider> = {
   'claude-sonnet': {
     name: 'Claude Sonnet',
-    model: 'claude-3-5-sonnet-20241022',
+    model: CLAUDE_MODELS.SONNET,
     strengths: ['Security analysis', 'Architecture review', 'Cross-file context', 'Documentation'],
     costTier: 'medium',
     speedTier: 'medium'
   },
   'claude-haiku': {
     name: 'Claude Haiku',
-    model: 'claude-3-5-haiku-20241022',
+    model: CLAUDE_MODELS.HAIKU,
     strengths: ['Quick feedback', 'Code style', 'Basic quality checks'],
     costTier: 'low',
     speedTier: 'fast'
