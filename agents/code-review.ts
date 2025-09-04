@@ -740,16 +740,21 @@ function checkClaudeCodeAuth(): boolean {
     return isAuthenticated;
     
   } catch (error: any) {
-    console.log(`❌ Claude Code check failed: ${error.message}`);
-    
-    // Show more details about the error
-    if (error.stderr) {
-      console.log(`   stderr: ${error.stderr.toString()}`);
-    }
-    if (error.stdout) {
-      console.log(`   stdout: ${error.stdout.toString()}`);
+    // Only show detailed error in verbose mode, otherwise just return false
+    if (process.env.DEBUG) {
+      console.log(`❌ Claude Code check failed: ${error.message}`);
       
-      // Check if the error is just max_tokens (which means auth actually works)
+      // Show more details about the error
+      if (error.stderr) {
+        console.log(`   stderr: ${error.stderr.toString()}`);
+      }
+      if (error.stdout) {
+        console.log(`   stdout: ${error.stdout.toString()}`);
+      }
+    }
+    
+    // Check if the error is just max_tokens (which means auth actually works)
+    if (error.stdout) {
       const stdout = error.stdout.toString().toLowerCase();
       if (stdout.includes('max_tokens')) {
         console.log(`🔐 Authentication actually works (just a max_tokens limit issue)`);

@@ -3,6 +3,7 @@ import { ReviewTemplate } from '../templates/quality.js';
 import { MultiModelProvider, ModelConfig, ModelResponse, ReviewRequest } from './multi-model-provider.js';
 import { TokenTracker } from './token-tracker.js';
 import { ModelStatusChecker } from '../utils/model-status-checker.js';
+import { ErrorHandler } from '../utils/error-handler.js';
 
 export interface MultiModelReviewResult {
   filePath: string;
@@ -68,14 +69,37 @@ export class MultiModelReviewer {
         return await this.reviewWithOptimalModel(request, template);
       }
     } catch (error) {
-      console.error(`❌ Failed to review ${file.relativePath}:`, error);
+      // Handle different types of errors with the ErrorHandler
+      if (error.status || error.error) {
+        ErrorHandler.handleAnthropicAPIError(error, {
+          operation: 'multi-model review',
+          filePath: file.relativePath,
+          template: template.name,
+          authMethod: 'multi-model'
+        });
+      }
       
-      // Return a fallback result
+      if (error.code === 'ECONNREFUSED' || error.code === 'ENOTFOUND' || error.code === 'ETIMEDOUT') {
+        ErrorHandler.handleNetworkError(error, {
+          operation: 'multi-model API request',
+          filePath: file.relativePath,
+          template: template.name,
+          authMethod: 'multi-model'
+        });
+      }
+      
+      // For multi-model reviewer, we can be more forgiving and return an error result
+      ErrorHandler.warnNonCritical(
+        `Failed to review ${file.relativePath}: ${error.message || error}`,
+        'Returning empty result and continuing with other files'
+      );
+      
+      // Return a fallback result instead of throwing
       return {
         filePath: file.relativePath,
         template: template.name,
         hasIssues: false,
-        feedback: `Error reviewing file: ${error}`,
+        feedback: `❌ Review failed: ${error.message || 'Unknown error'}`,
         tokensUsed: { input: 0, output: 0 },
         timestamp: new Date(),
         authMethod: 'multi-model',
@@ -208,7 +232,7 @@ export class MultiModelReviewer {
           
           return result;
         } catch (error) {
-          console.error(`Failed to review ${file.relativePath}, skipping...`);
+          ErrorHandler.handleFileError(error, file.relativePath);
           return null;
         }
       });

@@ -6,6 +6,7 @@ import { TokenTracker } from './token-tracker.js';
 import { ReviewTemplate } from '../templates/quality.js';
 import { CacheManager } from '../utils/cache-manager.js';
 import { ModelStatusChecker } from '../utils/model-status-checker.js';
+import { ErrorHandler } from '../utils/error-handler.js';
 
 export interface ReviewResult {
   filePath: string;
@@ -41,7 +42,9 @@ export class CodeReviewer {
       console.log('🔑 Using API key authentication');
       this.anthropic = new Anthropic({ apiKey });
     } else {
-      throw new Error('No authentication method available. Either authenticate with Claude Code or provide an API key.');
+      ErrorHandler.handleAuthenticationError({
+        operation: 'CodeReviewer initialization'
+      });
     }
   }
 
@@ -139,8 +142,12 @@ export class CodeReviewer {
       };
 
     } catch (error) {
-      console.error(`❌ Error reviewing ${file.relativePath} with Claude Code:`, error);
-      throw error;
+      ErrorHandler.handleClaudeCodeError(error, {
+        operation: 'reviewing file with Claude Code',
+        filePath: file.relativePath,
+        template: template.name,
+        authMethod: 'claude-code'
+      });
     }
   }
 
@@ -199,8 +206,33 @@ export class CodeReviewer {
       };
 
     } catch (error) {
-      console.error(`❌ Error reviewing ${file.relativePath}:`, error);
-      throw error;
+      // Check if it's a network error
+      if (error.code === 'ECONNREFUSED' || error.code === 'ENOTFOUND' || error.code === 'ETIMEDOUT') {
+        ErrorHandler.handleNetworkError(error, {
+          operation: 'API request to Anthropic',
+          filePath: file.relativePath,
+          template: template.name,
+          authMethod: 'api-key'
+        });
+      }
+      
+      // Check if it's an Anthropic API error
+      if (error.status || error.error) {
+        ErrorHandler.handleAnthropicAPIError(error, {
+          operation: 'reviewing file with Anthropic API',
+          filePath: file.relativePath,
+          template: template.name,
+          authMethod: 'api-key'
+        });
+      }
+      
+      // Generic error fallback
+      ErrorHandler.handleGenericError(error, {
+        operation: 'reviewing file with API',
+        filePath: file.relativePath,
+        template: template.name,
+        authMethod: 'api-key'
+      });
     }
   }
 
@@ -263,7 +295,7 @@ export class CodeReviewer {
           
           return result;
         } catch (error) {
-          console.error(`Failed to review ${file.relativePath}, skipping...`);
+          ErrorHandler.handleFileError(error, file.relativePath);
           return null;
         }
       });
