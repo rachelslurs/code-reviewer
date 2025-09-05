@@ -1,22 +1,20 @@
 #!/bin/bash
 
-# Fallback CI Review Script
+# Enhanced CI Review Script with proper flag handling
 # Make script executable
 chmod +x $0
-# This ensures we always create some output for CI/CD
-# Usage: ./scripts/ci/safe-review.sh [template] [path] [additional_flags]
-
-set -e  # Exit on any error
 
 TEMPLATE=${1:-"quality"}
 TARGET_PATH=${2:-"."}
-ADDITIONAL_FLAGS=${3:-""}
+IS_INCREMENTAL=${3:-"false"}
+BASE_REF=${4:-""}
 OUTPUT_FILE="review-results.json"
 
-echo "🤖 Starting Safe CI Review"
+echo "🤖 Enhanced Safe CI Review"
 echo "Template: $TEMPLATE"
 echo "Path: $TARGET_PATH"
-echo "Additional flags: $ADDITIONAL_FLAGS"
+echo "Incremental: $IS_INCREMENTAL"
+echo "Base ref: $BASE_REF"
 echo "Output: $OUTPUT_FILE"
 
 # Function to create fallback JSON if review fails
@@ -36,7 +34,7 @@ create_fallback_json() {
       "output": 0
     },
     "timestamp": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
-    "authMethod": "unknown",
+    "authMethod": "oauth-token",
     "modelUsed": "none",
     "responseTime": 0
   }
@@ -63,18 +61,22 @@ echo "🔍 Testing authentication..."
     exit 1
 }
 
+# Build the command
+CMD="./bin/code-review --template $TEMPLATE --ci-mode --output json --output-file $OUTPUT_FILE --auto-fallback --allow-dirty"
+
+# Add incremental flags if needed
+if [ "$IS_INCREMENTAL" = "true" ] && [ -n "$BASE_REF" ]; then
+    CMD="$CMD --incremental --compare-with $BASE_REF"
+    echo "🔍 Running incremental review against $BASE_REF"
+else
+    echo "🔍 Running full review"
+fi
+
+CMD="$CMD $TARGET_PATH"
+
 # Run the actual review
-echo "🚀 Running code review..."
-if eval "./bin/code-review \
-    --template '$TEMPLATE' \
-    --ci-mode \
-    --output json \
-    --output-file '$OUTPUT_FILE' \
-    --auto-fallback \
-    --allow-dirty \
-    $ADDITIONAL_FLAGS \
-    '$TARGET_PATH'"; then
-    
+echo "🚀 Executing: $CMD"
+if eval "$CMD"; then
     echo "✅ Review completed successfully"
     
     # Verify JSON was created
@@ -119,4 +121,4 @@ else
     create_fallback_json 99 "Unknown error - no output created"
 fi
 
-echo "🎯 Safe review completed"
+echo "🎯 Enhanced safe review completed"

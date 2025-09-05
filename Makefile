@@ -46,6 +46,16 @@ test-perf: build ## Test performance
 test-templates: build ## Test all review templates
 	@bash scripts/test/templates.sh
 
+test-ci-fix: build ## Test CI fixes locally
+	@echo "🧪 Testing CI fixes..."
+	@chmod +x scripts/test/ci-fix-test.sh
+	@./scripts/test/ci-fix-test.sh
+
+test-oauth: build ## Test OAuth token authentication
+	@echo "🎫 Testing OAuth token..."
+	@chmod +x scripts/test/oauth-token-test.sh
+	@./scripts/test/oauth-token-test.sh
+
 # CI/CD commands
 setup-ci: ## Setup CI/CD integration files
 	@bash scripts/ci/setup.sh

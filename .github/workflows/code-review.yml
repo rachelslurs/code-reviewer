@@ -100,9 +100,9 @@ jobs:
           # Get the template from workflow input or use default
           TEMPLATE="${{ github.event.inputs.review_template || 'combined' }}"
           
-          # Use safe review script to ensure we always get output
-          chmod +x ./scripts/ci/safe-review.sh
-          ./scripts/ci/safe-review.sh "$TEMPLATE" .
+          # Use enhanced safe review script with incremental mode
+          chmod +x ./scripts/ci/enhanced-safe-review.sh
+          ./scripts/ci/enhanced-safe-review.sh "$TEMPLATE" . "true" "origin/${{ github.base_ref }}"
             
       - name: 'Run Full Code Review'
         if: github.event_name == 'push'
@@ -115,9 +115,9 @@ jobs:
           # Get the template from workflow input or use default
           TEMPLATE="${{ github.event.inputs.review_template || 'security' }}"
           
-          # Use safe review script to ensure we always get output
-          chmod +x ./scripts/ci/safe-review.sh
-          ./scripts/ci/safe-review.sh "$TEMPLATE" .
+          # Use enhanced safe review script for full review
+          chmod +x ./scripts/ci/enhanced-safe-review.sh
+          ./scripts/ci/enhanced-safe-review.sh "$TEMPLATE" . "false" ""
             
       - name: 'Debug Review Results'
         if: always()
