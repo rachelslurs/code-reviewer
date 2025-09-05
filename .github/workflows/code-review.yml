@@ -1,165 +1,242 @@
-name: Code Review Agent
+name: 'Code Review with Claude OAuth'
 
 on:
   pull_request:
     types: [opened, synchronize, reopened]
-    paths:
-      - '**/*.ts'
-      - '**/*.tsx'
-      - '**/*.js'
-      - '**/*.jsx'
-      - '.github/workflows/code-review.yml'
-
-permissions:
-  contents: read
-  pull-requests: write
-  checks: write
+    branches: [main, develop]
+  push:
+    branches: [main, develop]
+  workflow_dispatch:
+    inputs:
+      review_template:
+        description: 'Review template to use'
+        required: false
+        default: 'combined'
+        type: choice
+        options:
+          - quality
+          - security
+          - performance
+          - typescript
+          - combined
+          - all
 
 jobs:
-  code-review:
-    name: AI Code Review
+  claude-code-review:
+    name: 'Claude AI Code Review'
     runs-on: ubuntu-latest
     
+    permissions:
+      contents: read
+      pull-requests: write  # For commenting on PRs
+      actions: read
+    
     steps:
-      - name: Checkout code
+      - name: 'Checkout Repository'
         uses: actions/checkout@v4
         with:
+          # Fetch full history for incremental reviews
           fetch-depth: 0
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v1
+          
+      - name: 'Setup Node.js'
+        uses: actions/setup-node@v4
         with:
-          bun-version: latest
-
-      - name: Install dependencies
-        run: bun install
-
-      - name: Build code review agent
-        run: bun run build
-
-      - name: Get changed files
-        id: changed-files
-        uses: tj-actions/changed-files@v41
-        with:
-          files: |
-            **/*.ts
-            **/*.tsx
-            **/*.js
-            **/*.jsx
-          separator: " "
-
-      - name: Run AI Code Review
-        id: review
-        if: steps.changed-files.outputs.any_changed == 'true'
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          node-version: '18'
+          cache: 'npm'
+      
+      - name: 'Install Dependencies'
         run: |
-          # Create results directory
-          mkdir -p review-results
+          npm ci
           
-          # Run review on changed files with CI-optimized settings
-          ./bin/code-review \
-            --template combined \
-            --output json \
-            --output-file review-results/review.json \
-            --no-cache \
-            --allow-dirty \
-            --yes \
-            --ci-mode \
-            ${{ steps.changed-files.outputs.all_changed_files }}
+      - name: 'Setup Code Review Agent'
+        run: |
+          # Install the code review agent globally or use local version
+          npm install -g .
+          # Or if running locally: make install
           
-          # Extract key metrics for GitHub outputs
-          TOTAL_FILES=$(jq '.metadata.totalFiles' review-results/review.json)
-          FILES_WITH_ISSUES=$(jq '.metadata.filesWithIssues' review-results/review.json)
-          CRITICAL_ISSUES=$(jq '[.results[] | select(.feedback | contains("Critical") or contains("🚨"))] | length' review-results/review.json)
-          HIGH_ISSUES=$(jq '[.results[] | select(.feedback | contains("High") or contains("⚠️"))] | length' review-results/review.json)
+      - name: 'Configure Authentication'
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}  # Optional fallback
+        run: |
+          echo "🔍 Checking authentication..."
           
-          echo "total_files=$TOTAL_FILES" >> $GITHUB_OUTPUT
-          echo "files_with_issues=$FILES_WITH_ISSUES" >> $GITHUB_OUTPUT
-          echo "critical_issues=$CRITICAL_ISSUES" >> $GITHUB_OUTPUT
-          echo "high_issues=$HIGH_ISSUES" >> $GITHUB_OUTPUT
-          
-          # Set job status based on issues
-          if [ "$CRITICAL_ISSUES" -gt 0 ]; then
-            echo "review_status=critical" >> $GITHUB_OUTPUT
-            echo "status_message=🚨 Critical security/quality issues found" >> $GITHUB_OUTPUT
-          elif [ "$HIGH_ISSUES" -gt 0 ]; then
-            echo "review_status=warning" >> $GITHUB_OUTPUT
-            echo "status_message=⚠️ High priority issues found" >> $GITHUB_OUTPUT
-          elif [ "$FILES_WITH_ISSUES" -gt 0 ]; then
-            echo "review_status=info" >> $GITHUB_OUTPUT
-            echo "status_message=💡 Minor issues found" >> $GITHUB_OUTPUT
-          else
-            echo "review_status=success" >> $GITHUB_OUTPUT
-            echo "status_message=✅ All files clean!" >> $GITHUB_OUTPUT
+          # Verify OAuth token is available
+          if [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
+            echo "❌ CLAUDE_CODE_OAUTH_TOKEN secret not configured"
+            echo "Please add your Claude OAuth token to repository secrets"
+            exit 1
           fi
-
-      - name: Upload review results
-        if: steps.changed-files.outputs.any_changed == 'true'
+          
+          echo "✅ Claude OAuth token configured"
+          
+          # Show config (without revealing secrets)
+          code-review --config
+          
+      - name: 'Run Incremental Code Review'
+        if: github.event_name == 'pull_request'
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          echo "🔍 Running incremental code review for PR..."
+          
+          # Get the template from workflow input or use default
+          TEMPLATE="${{ github.event.inputs.review_template || 'combined' }}"
+          
+          # Run incremental review (only changed files)
+          code-review \
+            --template "$TEMPLATE" \
+            --incremental \
+            --compare-with "origin/${{ github.base_ref }}" \
+            --ci-mode \
+            --output json \
+            --output-file "review-results.json" \
+            --auto-fallback \
+            .
+            
+      - name: 'Run Full Code Review'
+        if: github.event_name == 'push'
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          echo "🔍 Running full code review for push to ${{ github.ref_name }}..."
+          
+          # Get the template from workflow input or use default
+          TEMPLATE="${{ github.event.inputs.review_template || 'security' }}"
+          
+          # Run full review with security focus for main branch
+          code-review \
+            --template "$TEMPLATE" \
+            --ci-mode \
+            --output json \
+            --output-file "review-results.json" \
+            --auto-fallback \
+            .
+            
+      - name: 'Upload Review Results'
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: code-review-results
-          path: review-results/
+          path: review-results.json
           retention-days: 30
-
-      - name: Generate PR comment
-        if: steps.changed-files.outputs.any_changed == 'true'
-        id: comment
-        run: |
-          node .github/scripts/generate-pr-comment.js review-results/review.json > review-results/pr-comment.md
-
-      - name: Comment on PR
-        if: steps.changed-files.outputs.any_changed == 'true'
-        uses: thollander/actions-comment-pull-request@v2
-        with:
-          filePath: review-results/pr-comment.md
-          comment_tag: code-review-agent
-
-      - name: Create check run
-        if: steps.changed-files.outputs.any_changed == 'true'
+          
+      - name: 'Comment on Pull Request'
+        if: github.event_name == 'pull_request'
         uses: actions/github-script@v7
         with:
           script: |
             const fs = require('fs');
-            const reviewData = JSON.parse(fs.readFileSync('review-results/review.json', 'utf8'));
-            const status = '${{ steps.review.outputs.review_status }}';
             
-            let conclusion;
-            switch(status) {
-              case 'critical':
-                conclusion = 'failure';
-                break;
-              case 'warning':
-                conclusion = 'neutral';
-                break;
-              case 'info':
-                conclusion = 'neutral';
-                break;
-              default:
-                conclusion = 'success';
+            // Read review results
+            let reviewResults = [];
+            try {
+              const data = fs.readFileSync('review-results.json', 'utf8');
+              reviewResults = JSON.parse(data);
+            } catch (error) {
+              console.log('No review results found or invalid JSON');
+              return;
             }
             
-            await github.rest.checks.create({
+            // Format results for PR comment
+            const hasIssues = reviewResults.some(r => r.hasIssues);
+            const totalFiles = reviewResults.length;
+            const filesWithIssues = reviewResults.filter(r => r.hasIssues).length;
+            
+            let comment = `## 🤖 Claude AI Code Review\n\n`;
+            
+            if (hasIssues) {
+              comment += `**⚠️ Issues Found**: ${filesWithIssues}/${totalFiles} files have issues\n\n`;
+            } else {
+              comment += `**✅ Clean Code**: No issues found in ${totalFiles} files\n\n`;
+            }
+            
+            // Add detailed results
+            if (hasIssues) {
+              comment += `### 📋 Detailed Results\n\n`;
+              
+              for (const result of reviewResults) {
+                if (result.hasIssues) {
+                  comment += `#### 📄 \`${result.filePath}\`\n`;
+                  comment += `${result.feedback}\n\n`;
+                }
+              }
+            }
+            
+            // Add footer
+            comment += `---\n`;
+            comment += `*Review powered by Claude AI with OAuth token authentication*\n`;
+            comment += `*Template: ${reviewResults[0]?.template || 'combined'}*`;
+            
+            // Post comment
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              name: 'AI Code Review',
-              head_sha: context.sha,
-              status: 'completed',
-              conclusion: conclusion,
-              output: {
-                title: '${{ steps.review.outputs.status_message }}',
-                summary: `Reviewed ${reviewData.metadata.totalFiles} files, found issues in ${reviewData.metadata.filesWithIssues} files`,
-                text: `## Summary\n- Critical Issues: ${{ steps.review.outputs.critical_issues }}\n- High Priority: ${{ steps.review.outputs.high_issues }}\n- Files Reviewed: ${{ steps.review.outputs.total_files }}\n- Files with Issues: ${{ steps.review.outputs.files_with_issues }}`
-              }
+              body: comment
             });
-
-      - name: Fail on critical issues
-        if: steps.review.outputs.critical_issues > 0
+            
+      - name: 'Set Exit Code'
+        if: always()
         run: |
-          echo "❌ Build failed due to ${{ steps.review.outputs.critical_issues }} critical issues"
-          echo "Please fix critical security or quality issues before merging."
-          exit 1
+          # Check if there were critical issues
+          if [ -f "review-results.json" ]; then
+            CRITICAL_ISSUES=$(jq '[.[] | select(.hasIssues and (.feedback | contains("Critical") or contains("🚨")))] | length' review-results.json)
+            
+            if [ "$CRITICAL_ISSUES" -gt 0 ]; then
+              echo "❌ Found $CRITICAL_ISSUES critical issues - failing build"
+              exit 1
+            else
+              echo "✅ No critical issues found"
+            fi
+          fi
 
-      - name: Skip review message  
-        if: steps.changed-files.outputs.any_changed == 'false'
-        run: echo "ℹ️ No reviewable files changed, skipping AI code review"
+  # Optional: Security-focused review for sensitive files
+  security-review:
+    name: 'Security Review'
+    runs-on: ubuntu-latest
+    if: contains(github.event.pull_request.changed_files, 'auth') || contains(github.event.pull_request.changed_files, 'security') || contains(github.event.pull_request.changed_files, '.env')
+    
+    permissions:
+      contents: read
+      pull-requests: write
+    
+    steps:
+      - name: 'Checkout Repository'
+        uses: actions/checkout@v4
+        
+      - name: 'Setup Node.js'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+      
+      - name: 'Install Dependencies'
+        run: npm ci
+          
+      - name: 'Setup Code Review Agent'
+        run: npm install -g .
+          
+      - name: 'Run Security Review'
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          echo "🔐 Running security-focused review..."
+          
+          code-review \
+            --template security \
+            --incremental \
+            --compare-with "origin/${{ github.base_ref }}" \
+            --ci-mode \
+            --output json \
+            --output-file "security-results.json" \
+            .
+            
+      - name: 'Upload Security Results'
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-review-results
+          path: security-results.json
+          retention-days: 30

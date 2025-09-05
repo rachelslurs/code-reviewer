@@ -54,21 +54,37 @@ make test               # Basic functionality test
 
 ### Authentication Setup
 
-**Option 1: Claude Code (Recommended)**
+**Option 1: Claude Code (Recommended for Local Development)**
 ```bash
 claude setup-token      # Uses your subscription with higher limits
 ```
 
-**Option 2: API Keys**
+**Option 2: OAuth Token (Best for CI/CD Environments)**
+```bash
+export CLAUDE_CODE_OAUTH_TOKEN="your-oauth-token"
+```
+> 🎯 **Perfect for GitHub Actions!** OAuth tokens provide secure, stateless authentication for CI/CD pipelines without requiring Claude Code CLI installation.
+
+**Option 3: API Keys (Universal)**
 ```bash
 export ANTHROPIC_API_KEY="your-claude-key"
 export GEMINI_API_KEY="your-gemini-key"    # Optional for auto-fallback
 ```
 
-**Option 3: Interactive Setup**
+**Option 4: Interactive Setup**
 ```bash
-./bin/code-review --setup
+./bin/code-review --setup    # Configure any method interactively
 ```
+
+### 🔑 Authentication Method Comparison
+
+| Method | Local Dev | CI/CD | Rate Limits | Setup Complexity |
+|--------|-----------|-------|-------------|------------------|
+| **Claude Code** | ✅ Perfect | ❌ Complex | 🚀 Highest | 🟢 Simple |
+| **OAuth Token** | ✅ Good | ✅ Perfect | 🚀 High | 🟡 Medium |
+| **API Key** | ✅ Good | ✅ Good | ⚠️ Standard | 🟢 Simple |
+
+> **💡 Recommendation**: Use Claude Code for local development, OAuth tokens for CI/CD!
 
 ## 📖 Usage Guide
 
@@ -422,6 +438,67 @@ code-review --ci-mode --auto-fallback --template combined --output json ./src
 ├── scripts/                       # All automation scripts
 └── .github/workflows/            # GitHub Actions integration
 ```
+
+## 🚀 CI/CD Integration
+
+### GitHub Actions Setup (OAuth Token Method)
+
+**Step 1: Add OAuth Token to Repository Secrets**
+1. Go to your repository → Settings → Secrets and variables → Actions
+2. Click "New repository secret"
+3. Name: `CLAUDE_CODE_OAUTH_TOKEN`
+4. Value: Your Claude Code OAuth token
+5. Optional: Add `GEMINI_API_KEY` for fallback support
+
+**Step 2: Use the Provided Workflow**
+
+Our repository includes a complete GitHub Actions workflow at `.github/workflows/code-review.yml`:
+
+```yaml
+# Key features of our workflow:
+- ✅ OAuth token authentication  
+- ✅ Automatic PR comments with review results
+- ✅ Incremental reviews (only changed files)
+- ✅ Security-focused reviews for sensitive files
+- ✅ Proper exit codes for build status
+- ✅ JSON artifacts for further processing
+```
+
+**Step 3: Workflow Triggers**
+- **Pull Requests**: Incremental review of changed files with PR comments
+- **Push to Main**: Full security review of entire codebase
+- **Manual Dispatch**: Custom template selection via GitHub UI
+
+### CI/CD Authentication Options
+
+| Environment | Recommended Method | Setup Instructions |
+|-------------|-------------------|--------------------|
+| **GitHub Actions** | OAuth Token | Add `CLAUDE_CODE_OAUTH_TOKEN` to secrets |
+| **GitLab CI** | OAuth Token | Add to CI/CD variables |
+| **Jenkins** | API Key | Set `ANTHROPIC_API_KEY` environment variable |
+| **Azure DevOps** | OAuth Token | Add to pipeline variables |
+
+### Example CI/CD Command
+
+```bash
+# Typical CI/CD usage with OAuth token
+CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }} \
+code-review \
+  --template combined \
+  --incremental \
+  --ci-mode \
+  --output json \
+  --auto-fallback \
+  .
+```
+
+### CI/CD Benefits
+
+- **🔐 Secure**: OAuth tokens provide secure, stateless authentication
+- **⚡ Fast**: Incremental reviews only check changed files
+- **📊 Detailed**: JSON output for integration with other tools
+- **🎯 Smart**: Auto-fallback between Claude and Gemini models
+- **💬 Interactive**: Automatic PR comments with actionable feedback
 
 ### Development Commands
 ```bash

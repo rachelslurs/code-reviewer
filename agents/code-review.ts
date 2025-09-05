@@ -17,6 +17,7 @@ import { ModelStatusChecker } from '../src/utils/model-status-checker.js';
 import { InteractiveSelector } from '../src/utils/interactive-selector.js';
 import { FileWatcher } from '../src/utils/file-watcher.js';
 import { OutputFormatter } from '../src/utils/output-formatter.js';
+import { AuthManager } from '../src/utils/auth-manager.js';
 
 // CLI Options Interface
 interface CLIOptions {
@@ -388,8 +389,11 @@ function parseArguments(args: string[]): CLIOptions {
 async function determineAuthentication(options: CLIOptions, config: any) {
   console.log('\n🔍 Checking authentication...');
   
-  const hasClaudeCode = checkClaudeCodeAuth();
-  const hasApiKey = !!(config.apiKey || process.env.ANTHROPIC_API_KEY);
+  // Use the new AuthManager for Claude authentication
+  const authConfig = AuthManager.checkAuthentication();
+  const hasClaudeCode = authConfig.claudeCodeAvailable;
+  const hasApiKey = authConfig.apiKeyAvailable || !!(config.apiKey);
+  const hasOAuthToken = authConfig.oauthTokenAvailable;
   const hasGeminiKey = !!(config.geminiApiKey || process.env.GEMINI_API_KEY);
   
   // Determine which models we need
@@ -414,7 +418,7 @@ async function determineAuthentication(options: CLIOptions, config: any) {
   }
   
   // Check authentication
-  const claudeAvailable = hasClaudeCode || hasApiKey;
+  const claudeAvailable = hasClaudeCode || hasApiKey || hasOAuthToken;
   const geminiAvailable = hasGeminiKey;
   
   if (options.autoFallback) {
@@ -443,9 +447,10 @@ async function determineAuthentication(options: CLIOptions, config: any) {
     const errors = [];
     
     if (needsClaude && !claudeAvailable) {
-      errors.push('Claude authentication required:');
-      errors.push('  • claude setup-token (recommended) OR');
+      errors.push('Claude authentication required (choose one):');
+      errors.push('  • claude setup-token (recommended for local dev)');
       errors.push('  • Set ANTHROPIC_API_KEY environment variable');
+      errors.push('  • Set CLAUDE_CODE_OAUTH_TOKEN environment variable (for CI/CD)');
     }
     
     if (needsGemini && !geminiAvailable) {
@@ -468,6 +473,8 @@ async function determineAuthentication(options: CLIOptions, config: any) {
   const authMethods = [];
   if (hasClaudeCode && needsClaude) {
     authMethods.push('🔐 Claude Code (subscription)');
+  } else if (hasOAuthToken && needsClaude) {
+    authMethods.push('🎫 Claude OAuth Token (CI/CD)');
   } else if (hasApiKey && needsClaude) {
     authMethods.push('🔑 Claude API');
   }
@@ -489,10 +496,12 @@ async function determineAuthentication(options: CLIOptions, config: any) {
   return {
     hasClaudeCode,
     hasApiKey,
+    hasOAuthToken,
     hasGeminiKey,
     claudeAvailable,
     geminiAvailable,
     modelFallbackChain,
+    authConfig,
     apiKey: config.apiKey || process.env.ANTHROPIC_API_KEY,
     geminiApiKey: config.geminiApiKey || process.env.GEMINI_API_KEY
   };
@@ -540,7 +549,8 @@ async function initializeReviewer(options: CLIOptions, authInfo: any, config: an
         gemini: authInfo.geminiApiKey
       },
       authInfo.hasClaudeCode,
-      fallbackConfig
+      fallbackConfig,
+      authInfo.authConfig
     );
   } else if (options.multiModel || options.compareModels) {
     // Multi-model reviewer
@@ -559,7 +569,8 @@ async function initializeReviewer(options: CLIOptions, authInfo: any, config: an
         gemini: authInfo.geminiApiKey
       },
       authInfo.hasClaudeCode,
-      multiModelConfig
+      multiModelConfig,
+      authInfo.authConfig
     );
   } else {
     // Traditional single model reviewer
@@ -588,14 +599,16 @@ async function initializeReviewer(options: CLIOptions, authInfo: any, config: an
           gemini: authInfo.geminiApiKey
         },
         false,
-        geminiConfig
+        geminiConfig,
+        authInfo.authConfig
       );
     } else {
       // Traditional Claude reviewer
       return new CodeReviewer(
         authInfo.hasClaudeCode ? undefined : authInfo.apiKey,
         authInfo.hasClaudeCode,
-        !options.noCache
+        !options.noCache,
+        authInfo.authConfig
       );
     }
   }
@@ -705,72 +718,7 @@ function getTemplates(templateName: string) {
   }
 }
 
-function checkClaudeCodeAuth(): boolean {
-  try {
-    // Check if claude command exists and get version
-    const version = execSync('claude --version', { 
-      encoding: 'utf8', 
-      stdio: 'pipe',
-      timeout: 5000
-    });
-    
-    console.log(`🔍 Detected Claude Code: ${version.trim()}`);
-    
-    // Test authentication using a simple model alias that should exist
-    const testResult = execSync('echo "Hello" | claude --print --model sonnet', {
-      encoding: 'utf8',
-      stdio: 'pipe',
-      timeout: 15000 // 15 second timeout for API call
-    });
-    
-    // Check if we got a successful response (any text response means auth worked)
-    const lowerResult = testResult.toLowerCase();
-    const hasAuthError = lowerResult.includes('authentication') ||
-                        lowerResult.includes('unauthorized') ||
-                        lowerResult.includes('not authenticated') ||
-                        lowerResult.includes('setup-token') ||
-                        lowerResult.includes('login required');
-    
-    // Max tokens error means auth worked, just wrong model limits
-    const hasMaxTokensError = lowerResult.includes('max_tokens');
-    
-    const isAuthenticated = !hasAuthError || hasMaxTokensError;
-    
-    console.log(`🔐 Authentication test: ${isAuthenticated ? 'Passed' : 'Failed - run claude setup-token'}`);
-    return isAuthenticated;
-    
-  } catch (error: any) {
-    // Only show detailed error in verbose mode, otherwise just return false
-    if (process.env.DEBUG) {
-      console.log(`❌ Claude Code check failed: ${error.message}`);
-      
-      // Show more details about the error
-      if (error.stderr) {
-        console.log(`   stderr: ${error.stderr.toString()}`);
-      }
-      if (error.stdout) {
-        console.log(`   stdout: ${error.stdout.toString()}`);
-      }
-    }
-    
-    // Check if the error is just max_tokens (which means auth actually works)
-    if (error.stdout) {
-      const stdout = error.stdout.toString().toLowerCase();
-      if (stdout.includes('max_tokens')) {
-        console.log(`🔐 Authentication actually works (just a max_tokens limit issue)`);
-        return true;
-      }
-      
-      // Check if it's a model not found error (which also means auth works)
-      if (stdout.includes('not_found_error') && stdout.includes('model')) {
-        console.log(`🔐 Authentication works (just wrong model name)`);
-        return true;
-      }
-    }
-    
-    return false;
-  }
-}
+// Removed checkClaudeCodeAuth() - now using AuthManager.checkAuthentication()
 
 function printHelp(): void {
   console.log(`
@@ -832,26 +780,33 @@ CONFIGURATION:
   Use --setup to create or modify configuration interactively.
 
 AUTHENTICATION:
-  Claude Code (recommended):
+  Claude Code (recommended for local development):
     claude setup-token                # Authenticate with your subscription
   
-  Direct API (alternative):
+  Direct API (good for any environment):
     ANTHROPIC_API_KEY              # Environment variable
     GEMINI_API_KEY                 # Environment variable (optional but recommended)
-    code-review --setup            # Interactive configuration
+    
+  OAuth Token (best for CI/CD environments):
+    CLAUDE_CODE_OAUTH_TOKEN        # Environment variable
+    
+  Interactive setup:
+    code-review --setup            # Configure any authentication method
 `);
 }
 
 function showConfig(): void {
   const configManager = new ConfigManager();
   const config = configManager.load();
-  const hasClaudeCode = checkClaudeCodeAuth();
+  const authConfig = AuthManager.checkAuthentication();
   
   console.log('\n📋 Current Configuration:');
   console.log(`   Config file: ${configManager.exists() ? '✅ Found' : '❌ Not found (using defaults)'}`);  
-  console.log(`   Claude Code auth: ${hasClaudeCode ? '✅ Authenticated' : '❌ Not authenticated'}`);  
+  console.log(`   Claude Code auth: ${authConfig.claudeCodeAvailable ? '✅ Authenticated' : '❌ Not authenticated'}`);  
   console.log(`   API Key: ${config.apiKey ? '✅ Set in config' : process.env.ANTHROPIC_API_KEY ? '✅ Set in environment' : '❌ Not set'}`);
+  console.log(`   OAuth Token: ${authConfig.oauthTokenAvailable ? '✅ Set in environment' : '❌ Not set'}`);
   console.log(`   Gemini API Key: ${config.geminiApiKey ? '✅ Set in config' : process.env.GEMINI_API_KEY ? '✅ Set in environment' : '❌ Not set'}`);
+  console.log(`   Preferred auth: ${AuthManager.getAuthDescription()}`);
   console.log(`   Max file size: ${Math.round(config.maxFileSize / 1024)}KB`);
   console.log(`   Default template: ${config.defaultTemplate}`);
   console.log(`   Output format: ${config.outputFormat}`);
@@ -864,7 +819,7 @@ async function showModelStatus(): Promise<void> {
   
   const configManager = new ConfigManager();
   const config = configManager.load();
-  const hasClaudeCode = checkClaudeCodeAuth();
+  const authConfig = AuthManager.checkAuthentication();
   
   // Initialize status checker
   const statusChecker = new ModelStatusChecker();
@@ -872,7 +827,7 @@ async function showModelStatus(): Promise<void> {
   // Determine available models based on authentication
   const availableModels = [];
   
-  if (hasClaudeCode || config.apiKey || process.env.ANTHROPIC_API_KEY) {
+  if (authConfig.claudeCodeAvailable || authConfig.apiKeyAvailable || authConfig.oauthTokenAvailable || config.apiKey) {
     availableModels.push('claude-sonnet', 'claude-haiku');
   }
   
@@ -881,7 +836,9 @@ async function showModelStatus(): Promise<void> {
   }
   
   if (availableModels.length === 0) {
-    console.error('❌ No API keys configured. Use --setup to configure authentication.');
+    console.error('❌ No authentication configured.');
+    const instructions = AuthManager.getSetupInstructions();
+    instructions.forEach(instruction => console.error(instruction));
     return;
   }
   
@@ -910,25 +867,40 @@ async function setupWizard(): Promise<void> {
   
   const configManager = new ConfigManager();
   const currentConfig = configManager.load();
-  const hasClaudeCode = checkClaudeCodeAuth();
+  const authConfig = AuthManager.checkAuthentication();
 
-  // Show authentication status
-  if (hasClaudeCode) {
+  // Show current authentication status
+  console.log('🔍 Current Authentication Status:');
+  console.log(`   ${AuthManager.getAuthDescription()}`);
+  
+  if (authConfig.claudeCodeAvailable) {
     console.log('✅ Claude Code authentication detected - you\'re all set!');
     console.log('   Using your subscription with higher rate limits.\n');
+  } else if (authConfig.oauthTokenAvailable) {
+    console.log('✅ OAuth token detected - perfect for CI/CD!');
+    console.log('   You can also set up other authentication methods below.\n');
+  } else if (authConfig.apiKeyAvailable) {
+    console.log('✅ API key detected - you\'re authenticated!');
+    console.log('   You can also set up other authentication methods below.\n');
   } else {
-    console.log('❌ Claude Code not authenticated');
-    console.log('   Recommended: Run `claude setup-token` to use your subscription benefits');
-    console.log('   Alternative: Set up an API key below\n');
+    console.log('❌ No authentication detected');
+    console.log('   Choose an authentication method below\n');
   }
 
-  // API Key (optional if Claude Code is authenticated)
+  // API Key (optional if other auth methods are available)
   let apiKey = '';
-  if (!hasClaudeCode || await askConfirmation('Do you want to set up an API key anyway?', false)) {
+  if (!authConfig.claudeCodeAvailable && !authConfig.oauthTokenAvailable || await askConfirmation('Do you want to set up/update an API key?', false)) {
     apiKey = await askInput(
       'Enter your Anthropic API key (or press Enter to skip):',
       currentConfig.apiKey
     );
+    
+    if (!apiKey && !authConfig.claudeCodeAvailable && !authConfig.oauthTokenAvailable) {
+      console.log('\n💡 Alternative authentication methods:');
+      console.log('   1. Claude Code: Run `claude setup-token` (recommended for local dev)');
+      console.log('   2. OAuth Token: Set CLAUDE_CODE_OAUTH_TOKEN env var (for CI/CD)');
+      console.log('');
+    }
   }
 
   // Gemini API Key

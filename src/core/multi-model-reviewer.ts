@@ -4,6 +4,7 @@ import { MultiModelProvider, ModelConfig, ModelResponse, ReviewRequest } from '.
 import { TokenTracker } from './token-tracker.js';
 import { ModelStatusChecker } from '../utils/model-status-checker.js';
 import { ErrorHandler } from '../utils/error-handler.js';
+import { AuthConfig } from '../utils/auth-manager.js';
 
 export interface MultiModelReviewResult {
   filePath: string;
@@ -30,7 +31,8 @@ export class MultiModelReviewer {
   constructor(
     apiKeys: { anthropic?: string; gemini?: string },
     useClaudeCode: boolean = false,
-    config: ModelConfig
+    config: ModelConfig,
+    authConfig?: AuthConfig
   ) {
     this.config = config;
     this.provider = new MultiModelProvider(config, apiKeys, useClaudeCode);

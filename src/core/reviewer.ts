@@ -7,6 +7,7 @@ import { ReviewTemplate } from '../templates/quality.js';
 import { CacheManager } from '../utils/cache-manager.js';
 import { ModelStatusChecker } from '../utils/model-status-checker.js';
 import { ErrorHandler } from '../utils/error-handler.js';
+import { AuthManager } from '../utils/auth-manager.js';
 
 export interface ReviewResult {
   filePath: string;
@@ -18,7 +19,7 @@ export interface ReviewResult {
   };
   timestamp: Date;
   hasIssues: boolean;
-  authMethod: 'claude-code' | 'api-key';
+  authMethod: 'claude-code' | 'api-key' | 'oauth-token';
 }
 
 export class CodeReviewer {
@@ -27,20 +28,44 @@ export class CodeReviewer {
   private useClaudeCode: boolean;
   private cacheManager: CacheManager;
   private statusChecker: ModelStatusChecker;
+  private authMethod: 'claude-code' | 'api-key' | 'oauth-token';
 
   constructor(apiKey?: string, forceClaudeCode?: boolean, enableCache: boolean = true) {
     this.tokenTracker = new TokenTracker();
     this.cacheManager = enableCache ? new CacheManager() : null as any;
     this.statusChecker = new ModelStatusChecker();
     
-    // Use the forceClaudeCode flag if provided, otherwise check authentication
-    this.useClaudeCode = forceClaudeCode || this.checkClaudeCodeAuth();
+    // Check all available authentication methods
+    const auth = AuthManager.checkAuthentication();
     
-    if (this.useClaudeCode) {
+    // Use the forceClaudeCode flag if provided, otherwise use best available
+    if (forceClaudeCode && auth.claudeCodeAvailable) {
+      this.useClaudeCode = true;
+      this.authMethod = 'claude-code';
       console.log('✅ Using Claude Code authentication');
-    } else if (apiKey) {
+    } else if (auth.preferredMethod === 'claude-code' && auth.claudeCodeAvailable) {
+      this.useClaudeCode = true;
+      this.authMethod = 'claude-code';
+      console.log('✅ Using Claude Code authentication');
+    } else if (auth.preferredMethod === 'oauth-token' && auth.oauthTokenAvailable) {
+      this.useClaudeCode = false;
+      this.authMethod = 'oauth-token';
+      console.log('🎫 Using Claude OAuth Token authentication');
+      
+      // Initialize Anthropic client with OAuth token
+      this.anthropic = new Anthropic({
+        apiKey: 'dummy', // Required by SDK but not used with OAuth
+        defaultHeaders: {
+          'Authorization': `Bearer ${process.env.CLAUDE_CODE_OAUTH_TOKEN}`
+        }
+      });
+    } else if ((auth.preferredMethod === 'api-key' && auth.apiKeyAvailable) || apiKey) {
+      this.useClaudeCode = false;
+      this.authMethod = 'api-key';
       console.log('🔑 Using API key authentication');
-      this.anthropic = new Anthropic({ apiKey });
+      
+      const key = apiKey || process.env.ANTHROPIC_API_KEY;
+      this.anthropic = new Anthropic({ apiKey: key });
     } else {
       ErrorHandler.handleAuthenticationError({
         operation: 'CodeReviewer initialization'
@@ -138,7 +163,7 @@ export class CodeReviewer {
         },
         timestamp: new Date(),
         hasIssues,
-        authMethod: 'claude-code'
+        authMethod: this.authMethod
       };
 
     } catch (error) {
@@ -202,7 +227,7 @@ export class CodeReviewer {
         tokensUsed,
         timestamp: new Date(),
         hasIssues,
-        authMethod: 'api-key'
+        authMethod: this.authMethod
       };
 
     } catch (error) {
