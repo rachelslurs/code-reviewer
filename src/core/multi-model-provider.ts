@@ -33,7 +33,7 @@ export interface ModelResponse {
 // Check: https://docs.anthropic.com/en/docs/about-claude/model-deprecations
 const CLAUDE_MODELS = {
   SONNET: 'claude-3-5-sonnet-20241220', // Current stable version
-  HAIKU: 'claude-3-5-haiku-20241022	'    // Current stable version
+  HAIKU: 'claude-3-5-haiku-20241022'    // Current stable version (fixed tab)
 };
 
 export const AVAILABLE_MODELS: Record<string, ModelProvider> = {
@@ -422,7 +422,7 @@ export class MultiModelProvider {
     try {
       // Make a minimal test request to verify authentication
       const response = await this.anthropic.messages.create({
-        model: 'claude-3-5-haiku-20241022	',
+        model: 'claude-3-5-haiku-20241022',
         max_tokens: 10,
         messages: [{ role: 'user', content: 'test' }]
       });
