@@ -50,14 +50,14 @@ fi
 
 # Test Sonnet model
 echo ""
-echo "📞 Testing Claude 3.5 Sonnet (claude-3-5-sonnet-20241220):"
+echo "📞 Testing Claude 3.5 Sonnet (claude-3-5-sonnet-20241022):"
 SONNET_RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}\n" \
   -X POST \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $ANTHROPIC_API_KEY" \
   -H "anthropic-version: 2023-06-01" \
   -d '{
-    "model": "claude-3-5-sonnet-20241220",
+    "model": "claude-3-5-sonnet-20241022",
     "max_tokens": 10,
     "messages": [
       {

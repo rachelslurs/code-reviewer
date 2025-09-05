@@ -32,7 +32,7 @@ export interface ModelResponse {
 // Model versions - update these when Anthropic releases newer versions
 // Check: https://docs.anthropic.com/en/docs/about-claude/model-deprecations
 const CLAUDE_MODELS = {
-  SONNET: 'claude-3-5-sonnet-20241220', // Current stable version
+  SONNET: 'claude-3-5-sonnet-20241022', // Current stable version (fixed date)
   HAIKU: 'claude-3-5-haiku-20241022'    // Current stable version (fixed tab)
 };
 
