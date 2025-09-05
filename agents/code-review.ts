@@ -17,163 +17,410 @@ import { ModelStatusChecker } from '../src/utils/model-status-checker.js';
 import { InteractiveSelector } from '../src/utils/interactive-selector.js';
 import { FileWatcher } from '../src/utils/file-watcher.js';
 import { OutputFormatter } from '../src/utils/output-formatter.js';
+import { AuthManager } from '../src/utils/auth-manager.js';
+
+// CLI Options Interface
+interface CLIOptions {
+  // Core options
+  template: 'quality' | 'security' | 'performance' | 'typescript' | 'combined' | 'all';
+  output: 'terminal' | 'markdown' | 'json' | 'html';
+  outputFile?: string;
+  
+  // Multi-model options
+  multiModel: boolean;
+  compareModels: boolean;
+  model?: string;
+  autoFallback: boolean;
+  
+  // Performance & efficiency
+  incremental: boolean;
+  compareWith: string;
+  resume: boolean;
+  noCache: boolean;
+  clearCache: boolean;
+  
+  // Developer experience
+  interactive: boolean;
+  watch: boolean;
+  ciMode: boolean;
+  yes: boolean;
+  allowDirty: boolean;
+  
+  // Status & config
+  status: boolean;
+  config: boolean;
+  setup: boolean;
+  help: boolean;
+  
+  // Target path
+  targetPath: string;
+}
 
 async function main() {
   const args = process.argv.slice(2);
   
-  // Handle help
-  if (args.includes('--help') || args.includes('-h')) {
+  // Parse command line arguments
+  const options = parseArguments(args);
+  
+  // Handle special commands that exit early
+  if (options.help) {
     printHelp();
     process.exit(0);
   }
-
-  // Handle config commands
-  if (args.includes('--config')) {
+  
+  if (options.config) {
     showConfig();
     process.exit(0);
   }
-
-  if (args.includes('--setup')) {
+  
+  if (options.setup) {
     await setupWizard();
     process.exit(0);
   }
-  // Handle cache clearing first (before other logic)
-  if (args.includes('--clear-cache')) {
+  
+  if (options.clearCache) {
     const cacheManager = new CacheManager();
     cacheManager.clearCache();
+    console.log('✅ Cache cleared successfully!');
     process.exit(0);
   }
   
-  // Handle model status command
-  if (args.includes('--model-status') || args.includes('--status')) {
+  if (options.status) {
     await showModelStatus();
     process.exit(0);
   }
-
-  // Load config
+  
+  // Load configuration
   const configManager = new ConfigManager();
   const config = configManager.load();
-
-  // Parse arguments more carefully
-  const templateIndex = args.indexOf('--template');
-  let template = config.defaultTemplate;
-  if (templateIndex !== -1 && templateIndex < args.length - 1) {
-    template = args[templateIndex + 1];
-  }
   
-  // Parse output format
-  const outputIndex = args.indexOf('--output');
-  let outputFormat = config.outputFormat;
-  if (outputIndex !== -1 && outputIndex < args.length - 1) {
-    outputFormat = args[outputIndex + 1] as 'terminal' | 'markdown' | 'json' | 'html';
-  }
-  
-  // Parse output file
-  const outputFileIndex = args.indexOf('--output-file');
-  let outputFile = config.outputFile;
-  if (outputFileIndex !== -1 && outputFileIndex < args.length - 1) {
-    outputFile = args[outputFileIndex + 1];
-  }
-  
-  // Remove format args to find the target path
-  const filteredArgs = args.filter((arg, index) => {
-    if (arg === '--template') return false;
-    if (templateIndex !== -1 && index === templateIndex + 1) return false;
-    if (arg === '--output') return false;
-    if (outputIndex !== -1 && index === outputIndex + 1) return false;
-    if (arg === '--output-file') return false;
-    if (outputFileIndex !== -1 && index === outputFileIndex + 1) return false;
-    return !arg.startsWith('--') && arg !== '-y';
-  });
-  
-  const targetPath = filteredArgs[0] || '.';
-  
-  // Check for git override flags
-  const allowDirty = args.includes('--allow-dirty') || args.includes('--no-git-check');
-  const effectiveRequireCleanGit = config.requireCleanGit && !allowDirty;
-  
-  // Check cache options
-  const noCache = args.includes('--no-cache');
-  
-  // Multi-model options
-  const useMultiModel = args.includes('--multi-model');
-  const comparisonMode = args.includes('--compare-models');
-  const modelIndex = args.indexOf('--model');
-  const specificModel = modelIndex !== -1 && modelIndex < args.length - 1 
-    ? args[modelIndex + 1] 
-    : null;
-    
-  // Session management and incremental options
-  const resume = args.includes('--resume');
-  const incremental = args.includes('--incremental') || args.includes('--changed-only');
-  
-  // Parse incremental options
-  const compareWithIndex = args.indexOf('--compare-with');
-  const compareWith = compareWithIndex !== -1 && compareWithIndex < args.length - 1 
-    ? args[compareWithIndex + 1] 
-    : 'last-commit';
-    
-  const includeUntracked = args.includes('--include-untracked');
-  const includeStaged = args.includes('--include-staged');
-  
-  // Developer experience options
-  const ciMode = args.includes('--ci-mode');
-  const interactive = args.includes('--interactive') || args.includes('-i');
-  const watchMode = args.includes('--watch') || args.includes('-w');
-  const autoFallback = args.includes('--auto-fallback');
-
-  // Auto-fallback model priority by template
-  const getModelPriority = (template: string): string[] => {
-    const priorities: { [key: string]: string[] } = {
-      'security': ['claude-sonnet', 'claude-haiku', 'gemini-pro', 'gemini-flash'],
-      'combined': ['claude-sonnet', 'gemini-pro', 'claude-haiku', 'gemini-flash'], 
-      'quality': ['gemini-flash', 'claude-haiku', 'gemini-pro', 'claude-sonnet'],
-      'performance': ['gemini-flash', 'gemini-pro', 'claude-haiku', 'claude-sonnet'],
-      'typescript': ['gemini-flash', 'claude-haiku', 'gemini-pro', 'claude-sonnet']
-    };
-    return priorities[template] || priorities['quality'];
+  // Override config with CLI options
+  const effectiveConfig = {
+    ...config,
+    defaultTemplate: options.template as any,
+    outputFormat: options.output,
+    outputFile: options.outputFile
   };
+  
+  // Check git status if required
+  const gitManager = new GitManager();
+  const effectiveRequireCleanGit = config.requireCleanGit && !options.allowDirty;
+  const gitCheck = gitManager.checkWorkingDirectory(effectiveRequireCleanGit);
+  
+  if (!gitCheck.clean) {
+    console.error(`❌ ${gitCheck.message}`);
+    console.error('   Use --allow-dirty to bypass this check');
+    process.exit(1);
+  }
+  
+  // Determine authentication and model requirements
+  const authInfo = await determineAuthentication(options, config);
+  
+  // Display startup information
+  displayStartupInfo(options, gitManager, authInfo);
+  
+  // Scan files
+  console.log('\n📂 Scanning files...');
+  const scanner = new FileScanner(effectiveConfig);
+  const sessionManager = new ReviewSessionManager();
+  
+  try {
+    const scanResult = scanner.scanPath(options.targetPath);
+    
+    if (scanResult.files.length === 0) {
+      console.log('❌ No reviewable files found.');
+      process.exit(0);
+    }
+    
+    let filesToReview = scanResult.files;
+    
+    // Apply incremental filtering if requested
+    if (options.incremental) {
+      filesToReview = sessionManager.getIncrementalFiles(scanResult.files, {
+        compareWith: options.compareWith,
+        includeUntracked: false,
+        includeStaged: false
+      });
+      
+      if (filesToReview.length === 0) {
+        console.log('✅ No changed files to review!');
+        process.exit(0);
+      }
+    }
+    
+    scanner.printScanSummary({ 
+      ...scanResult, 
+      files: filesToReview 
+    });
+    
+    // Interactive file selection (after incremental filtering)
+    if (options.interactive && !options.ciMode) {
+      const selection = await InteractiveSelector.selectFiles(filesToReview);
+      if (selection.cancelled) {
+        console.log('Review cancelled.');
+        process.exit(0);
+      }
+      filesToReview = selection.selectedFiles;
+      
+      if (filesToReview.length === 0) {
+        console.log('No files selected for review.');
+        process.exit(0);
+      }
+    }
+    
+    // Ask for confirmation (skip in CI mode or if interactive selection already happened)
+    if (!options.yes && !options.ciMode && !options.interactive) {
+      const shouldContinue = await askConfirmation(
+        `\nProceed with review of ${filesToReview.length} files?`
+      );
+      if (!shouldContinue) {
+        console.log('Review cancelled.');
+        process.exit(0);
+      }
+    }
+    
+    // Initialize reviewer based on options
+    const reviewer: any = await initializeReviewer(options, authInfo, config);
+    
+    // Initialize session management
+    const session = await sessionManager.startSession(
+      filesToReview,
+      options.template,
+      options.targetPath,
+      {
+        outputFormat: options.output,
+        outputFile: options.outputFile,
+        noCache: options.noCache,
+        resume: options.resume
+      }
+    );
+    
+    // Handle watch mode
+    if (options.watch) {
+      const reviewTemplate = getTemplates(options.template)[0];
+      const watcher = new FileWatcher({
+        template: reviewTemplate,
+        config: effectiveConfig,
+        reviewer,
+        debounceMs: 2000
+      });
+      
+      await watcher.startWatching([options.targetPath]);
+      return; // Keep watching (process stays alive)
+    }
+    
+    // Get files to review (from session if resuming)
+    const finalFilesToReview = options.resume ? sessionManager.getRemainingFiles() : filesToReview;
+    
+    if (finalFilesToReview.length === 0) {
+      console.log('✅ All files already completed!');
+      const completedResults = sessionManager.getCompletedResults();
+      if (completedResults.length > 0) {
+        reviewer.printReviewSummary(completedResults);
+      }
+      sessionManager.completeSession();
+      process.exit(0);
+    }
+    
+    // Run reviews
+    const allResults: any[] = await runReviews(
+      reviewer,
+      finalFilesToReview,
+      options.template,
+      sessionManager
+    );
+    
+    // Complete the session
+    sessionManager.completeSession();
+    
+    // Handle results based on output format
+    await handleResults(allResults, options, reviewer);
+    
+    // In CI mode, set exit code based on issue severity
+    if (options.ciMode) {
+      const exitCode = determineExitCode(allResults);
+      process.exit(exitCode);
+    }
+    
+  } catch (error) {
+    console.error('❌ Error during review:', error);
+    process.exit(1);
+  }
+  
+  // Ensure clean exit
+  setTimeout(() => {
+    console.log('\n✅ Review completed successfully!');
+    process.exit(0);
+  }, 500);
+}
 
-  // Determine which models we'll actually need
+function parseArguments(args: string[]): CLIOptions {
+  const options: CLIOptions = {
+    // Core options
+    template: 'quality',
+    output: 'terminal',
+    
+    // Multi-model options
+    multiModel: false,
+    compareModels: false,
+    autoFallback: false,
+    
+    // Performance & efficiency
+    incremental: false,
+    compareWith: 'last-commit',
+    resume: false,
+    noCache: false,
+    clearCache: false,
+    
+    // Developer experience
+    interactive: false,
+    watch: false,
+    ciMode: false,
+    yes: false,
+    allowDirty: false,
+    
+    // Status & config
+    status: false,
+    config: false,
+    setup: false,
+    help: false,
+    
+    // Target path
+    targetPath: '.'
+  };
+  
+  // Parse arguments
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    
+    switch (arg) {
+      case '--help':
+      case '-h':
+        options.help = true;
+        break;
+      case '--config':
+        options.config = true;
+        break;
+      case '--setup':
+        options.setup = true;
+        break;
+      case '--clear-cache':
+        options.clearCache = true;
+        break;
+      case '--status':
+      case '--model-status':
+        options.status = true;
+        break;
+      case '--template':
+        if (i + 1 < args.length) {
+          options.template = args[++i] as any;
+        }
+        break;
+      case '--output':
+        if (i + 1 < args.length) {
+          options.output = args[++i] as any;
+        }
+        break;
+      case '--output-file':
+        if (i + 1 < args.length) {
+          options.outputFile = args[++i];
+        }
+        break;
+      case '--model':
+        if (i + 1 < args.length) {
+          options.model = args[++i];
+        }
+        break;
+      case '--compare-with':
+        if (i + 1 < args.length) {
+          options.compareWith = args[++i];
+        }
+        break;
+      case '--multi-model':
+        options.multiModel = true;
+        break;
+      case '--compare-models':
+        options.compareModels = true;
+        break;
+      case '--auto-fallback':
+        options.autoFallback = true;
+        break;
+      case '--incremental':
+      case '--changed-only':
+        options.incremental = true;
+        break;
+      case '--resume':
+        options.resume = true;
+        break;
+      case '--no-cache':
+        options.noCache = true;
+        break;
+      case '--interactive':
+      case '-i':
+        options.interactive = true;
+        break;
+      case '--watch':
+      case '-w':
+        options.watch = true;
+        break;
+      case '--ci-mode':
+        options.ciMode = true;
+        break;
+      case '--yes':
+      case '-y':
+        options.yes = true;
+        break;
+      case '--allow-dirty':
+      case '--no-git-check':
+        options.allowDirty = true;
+        break;
+      default:
+        // If it's not a flag and doesn't start with --, it's likely the target path
+        if (!arg.startsWith('--') && !arg.startsWith('-')) {
+          options.targetPath = arg;
+        }
+        break;
+    }
+  }
+  
+  return options;
+}
+
+async function determineAuthentication(options: CLIOptions, config: any) {
+  console.log('\n🔍 Checking authentication...');
+  
+  // Use the new AuthManager for Claude authentication
+  const authConfig = AuthManager.checkAuthentication();
+  const hasClaudeCode = authConfig.claudeCodeAvailable;
+  const hasApiKey = authConfig.apiKeyAvailable || !!(config.apiKey);
+  const hasGeminiKey = !!(config.geminiApiKey || process.env.GEMINI_API_KEY);
+  
+  // Determine which models we need
   let needsClaude = false;
   let needsGemini = false;
   let modelFallbackChain: string[] = [];
   
-  if (autoFallback) {
-    // Auto-fallback mode: determine priority chain and check what's available
-    modelFallbackChain = getModelPriority(template);
-    console.log(`🎯 Auto-fallback enabled for ${template} template`);
-    console.log(`📋 Priority chain: ${modelFallbackChain.join(' → ')}`);
-    
-    // We might need both providers for fallback
+  if (options.autoFallback) {
+    modelFallbackChain = getModelPriority(options.template);
     needsClaude = modelFallbackChain.some(m => m.startsWith('claude-'));
     needsGemini = modelFallbackChain.some(m => m.startsWith('gemini-'));
-  } else if (specificModel) {
-    // User specified a particular model
-    needsClaude = specificModel.startsWith('claude-');
-    needsGemini = specificModel.startsWith('gemini-');
-    modelFallbackChain = [specificModel];
-  } else if (useMultiModel || comparisonMode) {
-    // Multi-model mode without specific model - might need both
+  } else if (options.model) {
+    needsClaude = options.model.startsWith('claude-');
+    needsGemini = options.model.startsWith('gemini-');
+    modelFallbackChain = [options.model];
+  } else if (options.multiModel || options.compareModels) {
     needsClaude = true;
     needsGemini = true;
   } else {
-    // Default single model mode - use Claude
     needsClaude = true;
     modelFallbackChain = ['claude-sonnet'];
   }
-
-  // Check authentication methods based on what we actually need
-  console.log('\n🔍 Checking authentication...');
-  const hasClaudeCode = needsClaude ? checkClaudeCodeAuth() : false;
-  const hasApiKey = needsClaude ? !!(config.apiKey || process.env.ANTHROPIC_API_KEY) : false;
-  const hasGeminiKey = needsGemini ? !!(config.geminiApiKey || process.env.GEMINI_API_KEY) : false;
-
-  // In auto-fallback mode, we're more flexible about missing auth
+  
+  // Check authentication
   const claudeAvailable = hasClaudeCode || hasApiKey;
   const geminiAvailable = hasGeminiKey;
   
-  if (autoFallback) {
+  if (options.autoFallback) {
     // Filter fallback chain to only include models we have auth for
     const availableModels = modelFallbackChain.filter(model => {
       if (model.startsWith('claude-')) return claudeAvailable;
@@ -194,14 +441,13 @@ async function main() {
     
     modelFallbackChain = availableModels;
     console.log(`✅ Available models: ${modelFallbackChain.join(' → ')}`);
-    
   } else {
-    // Original strict authentication logic for non-fallback modes
+    // Strict authentication check for non-fallback modes
     const errors = [];
     
     if (needsClaude && !claudeAvailable) {
-      errors.push('Claude authentication required:');
-      errors.push('  • claude setup-token (recommended) OR');
+      errors.push('Claude authentication required (choose one):');
+      errors.push('  • claude setup-token (recommended for local dev)');
       errors.push('  • Set ANTHROPIC_API_KEY environment variable');
     }
     
@@ -220,10 +466,8 @@ async function main() {
       process.exit(1);
     }
   }
-
-  const apiKey = config.apiKey || process.env.ANTHROPIC_API_KEY;
   
-  // Show what authentication we're using
+  // Show authentication methods
   const authMethods = [];
   if (hasClaudeCode && needsClaude) {
     authMethods.push('🔐 Claude Code (subscription)');
@@ -239,285 +483,240 @@ async function main() {
     console.log(`✅ Authentication: ${authMethods.join(', ')}`);
   }
   
-  if (autoFallback) {
+  if (options.autoFallback) {
     console.log(`🎆 Auto-fallback: Will try models until one works`);
-  } else if (specificModel) {
-    console.log(`🎯 Model: ${specificModel}`);
+  } else if (options.model) {
+    console.log(`🎯 Model: ${options.model}`);
   }
+  
+  return {
+    hasClaudeCode,
+    hasApiKey,
+    hasGeminiKey,
+    claudeAvailable,
+    geminiAvailable,
+    modelFallbackChain,
+    authConfig,
+    apiKey: config.apiKey || process.env.ANTHROPIC_API_KEY,
+    geminiApiKey: config.geminiApiKey || process.env.GEMINI_API_KEY
+  };
+}
 
-  // Validate template
-  const availableTemplates = ['quality', 'security', 'performance', 'typescript', 'combined', 'all'];
-  if (!availableTemplates.includes(template)) {
-    console.error(`❌ Template '${template}' not available. Available templates: ${availableTemplates.join(', ')}`);
-    process.exit(1);
-  }
-
-  // Check git status if required
-  const gitManager = new GitManager();
-  const gitCheck = gitManager.checkWorkingDirectory(effectiveRequireCleanGit);
-  if (!gitCheck.clean) {
-    console.error(`❌ ${gitCheck.message}`);
-    console.error('   Use --allow-dirty to bypass this check');
-    process.exit(1);
-  }
-
+function displayStartupInfo(options: CLIOptions, gitManager: GitManager, authInfo: any) {
   console.log('🤖 Code Review Agent');
-  console.log(`📁 Target: ${targetPath}`);
-  console.log(`🎯 Template: ${template}`);
+  console.log(`📁 Target: ${options.targetPath}`);
+  console.log(`🎯 Template: ${options.template}`);
   
   if (gitManager.isGitRepo()) {
     console.log(`🌿 Branch: ${gitManager.getCurrentBranch()}`);
-    if (allowDirty && gitManager.hasUncommittedChanges()) {
+    if (options.allowDirty && gitManager.hasUncommittedChanges()) {
       console.log(`⚠️  Git: Dirty working directory (allowed)`);
     } else if (gitManager.hasUncommittedChanges()) {
       console.log(`✅ Git: Clean working directory`);
     }
   }
+}
 
-  // Scan files
-  console.log('\n📂 Scanning files...');
-  const scanner = new FileScanner(config);
-  const sessionManager = new ReviewSessionManager();
+async function initializeReviewer(options: CLIOptions, authInfo: any, config: any) {
+  // Get proper Anthropic configuration (handles OAuth tokens)
+  const anthropicConfig = AuthManager.getAnthropicConfig();
   
-  try {
-    const scanResult = scanner.scanPath(targetPath);
+  if (options.autoFallback) {
+    // Auto-fallback reviewer using multi-model infrastructure
+    const fallbackConfig = {
+      primaryModel: authInfo.modelFallbackChain[0],
+      fallbackModels: authInfo.modelFallbackChain.slice(1),
+      comparisonMode: false,
+      timeout: 60000,
+      maxRetries: authInfo.modelFallbackChain.length,
+      autoFallback: true,
+      templateMappings: {
+        'security': 'claude-sonnet',
+        'quality': 'gemini-flash',
+        'performance': 'gemini-flash', 
+        'typescript': 'gemini-flash',
+        'combined': 'claude-sonnet'
+      }
+    };
     
-    if (scanResult.files.length === 0) {
-      console.log('❌ No reviewable files found.');
-      process.exit(0);
+    console.log(`🚀 Initializing auto-fallback reviewer with ${authInfo.modelFallbackChain.length} models`);
+    
+    return new MultiModelReviewer(
+      {
+        anthropic: anthropicConfig.apiKey,
+        gemini: authInfo.geminiApiKey
+      },
+      authInfo.hasClaudeCode,
+      fallbackConfig,
+      authInfo.authConfig
+    );
+  } else if (options.multiModel || options.compareModels) {
+    // Multi-model reviewer
+    const multiModelConfig = {
+      ...config.multiModel!,
+      comparisonMode: options.compareModels || config.multiModel!.comparisonMode
+    };
+    
+    if (options.model) {
+      multiModelConfig.primaryModel = options.model;
     }
     
-    let filesToReview = scanResult.files;
+    return new MultiModelReviewer(
+      {
+        anthropic: anthropicConfig.apiKey,
+        gemini: authInfo.geminiApiKey
+      },
+      authInfo.hasClaudeCode,
+      multiModelConfig,
+      authInfo.authConfig
+    );
+  } else {
+    // Traditional single model reviewer
+    const targetModel = options.model || authInfo.modelFallbackChain[0] || 'claude-sonnet';
     
-    // Apply incremental filtering if requested
-    if (incremental) {
-      filesToReview = sessionManager.getIncrementalFiles(scanResult.files, {
-        compareWith,
-        includeUntracked,
-        includeStaged
-      });
-      
-      if (filesToReview.length === 0) {
-        console.log('✅ No changed files to review!');
-        process.exit(0);
-      }
-    }
-
-    scanner.printScanSummary({ 
-      ...scanResult, 
-      files: filesToReview 
-    });
-    
-    // Interactive file selection (after incremental filtering)
-    if (interactive && !ciMode) {
-      const selection = await InteractiveSelector.selectFiles(filesToReview);
-      if (selection.cancelled) {
-        console.log('Review cancelled.');
-        process.exit(0);
-      }
-      filesToReview = selection.selectedFiles;
-      
-      if (filesToReview.length === 0) {
-        console.log('No files selected for review.');
-        process.exit(0);
-      }
-    }
-
-    // Ask for confirmation (skip in CI mode or if interactive selection already happened)
-    if (!args.includes('--yes') && !args.includes('-y') && !ciMode && !interactive) {
-      const shouldContinue = await askConfirmation(
-        `\nProceed with review of ${filesToReview.length} files?`
-      );
-      if (!shouldContinue) {
-        console.log('Review cancelled.');
-        process.exit(0);
-      }
-    }
-
-    // Start review - choose between single model, multi-model, or auto-fallback
-    let reviewer: any;
-    
-    if (autoFallback) {
-      // Auto-fallback reviewer using multi-model infrastructure
-      const geminiApiKey = config.geminiApiKey || process.env.GEMINI_API_KEY;
-      
-      // Configure auto-fallback settings
-      const fallbackConfig = {
-        primaryModel: modelFallbackChain[0], // Start with the first (preferred) model
-        fallbackModels: modelFallbackChain.slice(1), // Rest are fallbacks
-        comparisonMode: false, // We want fallback, not comparison
+    if (targetModel.startsWith('gemini-')) {
+      // For Gemini-only mode, use MultiModelReviewer with Gemini config
+      const geminiConfig = {
+        primaryModel: targetModel,
+        fallbackModels: [],
+        comparisonMode: false,
         timeout: 60000,
-        maxRetries: modelFallbackChain.length,
-        autoFallback: true // Enable fallback mode
+        maxRetries: 3,
+        templateMappings: {
+          'security': 'claude-sonnet',
+          'quality': 'gemini-flash',
+          'performance': 'gemini-flash', 
+          'typescript': 'gemini-flash',
+          'combined': 'claude-sonnet'
+        }
       };
       
-      console.log(`🚀 Initializing auto-fallback reviewer with ${modelFallbackChain.length} models`);
-      
-      reviewer = new MultiModelReviewer(
+      return new MultiModelReviewer(
         {
-          anthropic: hasClaudeCode ? undefined : apiKey,
-          gemini: geminiApiKey
+          anthropic: undefined,
+          gemini: authInfo.geminiApiKey
         },
-        hasClaudeCode,
-        fallbackConfig
-      );
-      
-    } else if (useMultiModel || comparisonMode) {
-      // Multi-model reviewer
-      const geminiApiKey = config.geminiApiKey || process.env.GEMINI_API_KEY;
-      
-      // Configure multi-model settings
-      const multiModelConfig = {
-        ...config.multiModel!,
-        comparisonMode: comparisonMode || config.multiModel!.comparisonMode
-      };
-      
-      if (specificModel) {
-        multiModelConfig.primaryModel = specificModel;
-      }
-      
-      reviewer = new MultiModelReviewer(
-        {
-          anthropic: hasClaudeCode ? undefined : apiKey,
-          gemini: geminiApiKey
-        },
-        hasClaudeCode,
-        multiModelConfig
+        false,
+        geminiConfig,
+        authInfo.authConfig
       );
     } else {
-      // Traditional single model reviewer
-      const targetModel = specificModel || modelFallbackChain[0] || 'claude-sonnet';
-      
-      if (targetModel.startsWith('gemini-')) {
-        // For Gemini-only mode, use MultiModelReviewer with Gemini config
-        const geminiApiKey = config.geminiApiKey || process.env.GEMINI_API_KEY;
-        const geminiConfig = {
-          primaryModel: targetModel,
-          comparisonMode: false,
-          timeout: 60000
-        };
-        
-        reviewer = new MultiModelReviewer(
-          {
-            anthropic: undefined, // No Claude needed
-            gemini: geminiApiKey
-          },
-          false, // No Claude Code
-          geminiConfig
-        );
-      } else {
-        // Traditional Claude reviewer
-        reviewer = new CodeReviewer(
-          hasClaudeCode ? undefined : apiKey,
-          hasClaudeCode,
-          !noCache
-        );
-      }
+      // Traditional Claude reviewer
+      return new CodeReviewer(
+        anthropicConfig.apiKey,
+        authInfo.hasClaudeCode,
+        !options.noCache,
+        authInfo.authConfig
+      );
     }
+  }
+}
+
+async function runReviews(reviewer: any, filesToReview: any[], template: string, sessionManager: ReviewSessionManager) {
+  const templates = getTemplates(template);
+  const allResults: any[] = [];
+  
+  // Add any previously completed results
+  const previousResults = sessionManager.getCompletedResults();
+  allResults.push(...previousResults);
+  
+  for (const reviewTemplate of templates) {
+    console.log(`\n🎆 Running ${reviewTemplate.name} review...`);
     
-    // Initialize session management
-    const session = await sessionManager.startSession(
+    const results = await reviewer.reviewMultipleFiles(
       filesToReview,
-      template,
-      targetPath,
-      {
-        outputFormat,
-        outputFile,
-        noCache,
-        resume
+      reviewTemplate,
+      3, // Concurrency level
+      (current: number, total: number, result: any) => {
+        const status = result.hasIssues ? '🔍 Issues found' : '✅ Clean';
+        const progress = sessionManager.getProgress();
+        console.log(`[${progress.completed + current}/${progress.total}] ${result.filePath}: ${status}`);
       }
     );
     
-    // Handle watch mode
-    if (watchMode) {
-      const reviewTemplate = getTemplates(template)[0]; // Use first template for watch mode
-      const watcher = new FileWatcher({
-        template: reviewTemplate,
-        config,
-        reviewer,
-        debounceMs: 2000 // 2 second debounce
-      });
-      
-      await watcher.startWatching([targetPath]);
-      return; // Keep watching (process stays alive)
-    }
-    
-    // Get files to review (from session if resuming)
-    const finalFilesToReview = resume ? sessionManager.getRemainingFiles() : filesToReview;
-    
-    if (finalFilesToReview.length === 0) {
-      console.log('✅ All files already completed!');
-      const completedResults = sessionManager.getCompletedResults();
-      if (completedResults.length > 0) {
-        reviewer.printReviewSummary(completedResults);
-      }
-      sessionManager.completeSession();
-      process.exit(0);
-    }
-    
-    // Select review template(s)
-    const templates = getTemplates(template);
-    const allResults: any[] = [];
-    
-    // Add any previously completed results
-    const previousResults = sessionManager.getCompletedResults();
-    allResults.push(...previousResults);
-    
-    for (const reviewTemplate of templates) {
-      console.log(`\n🎆 Running ${reviewTemplate.name} review...`);
-      
-      const results = await reviewer.reviewMultipleFiles(
-        finalFilesToReview,
-        reviewTemplate,
-        3, // Concurrency level
-        (current, total, result) => {
-          const status = result.hasIssues ? '🔍 Issues found' : '✅ Clean';
-          const progress = sessionManager.getProgress();
-          console.log(`[${progress.completed + current}/${progress.total}] ${result.filePath}: ${status}`);
-        }
-      );
-      
-      // Update session progress
-      sessionManager.markFilesCompleted(results);
-      allResults.push(...results);
-    }
-    
-    // Complete the session
-    sessionManager.completeSession();
-
-    // Handle results based on output format
-    if (outputFormat === 'terminal') {
-      // Skip detailed results since we're streaming them
-      console.log('\n' + '='.repeat(80));
-      console.log('📊 FINAL SUMMARY (Detailed results streamed above)');
-      console.log('='.repeat(80));
-      reviewer.printReviewSummary(allResults);
-    } else {
-      // For non-terminal formats, save to file
-      console.log('\n' + '='.repeat(80));
-      console.log(`📊 GENERATING ${outputFormat.toUpperCase()} REPORT`);
-      console.log('='.repeat(80));
-      
-      await OutputFormatter.saveResults(allResults, {
-        format: outputFormat,
-        outputFile: outputFile,
-        includeMetadata: true
-      });
-      
-      reviewer.printReviewSummary(allResults);
-    }
-
-  } catch (error) {
-    console.error('❌ Error during review:', error);
-    process.exit(1);
+    // Update session progress
+    sessionManager.markFilesCompleted(results);
+    allResults.push(...results);
   }
-
-  // Ensure clean exit
-  setTimeout(() => {
-    console.log('\n✅ Review completed successfully!');
-    process.exit(0);
-  }, 500); // Give a brief moment for any final operations
+  
+  return allResults;
 }
+
+async function handleResults(allResults: any[], options: CLIOptions, reviewer: any) {
+  if (options.output === 'terminal') {
+    // Skip detailed results since we're streaming them
+    console.log('\n' + '='.repeat(80));
+    console.log('📊 FINAL SUMMARY (Detailed results streamed above)');
+    console.log('='.repeat(80));
+    reviewer.printReviewSummary(allResults);
+  } else {
+    // For non-terminal formats, save to file
+    console.log('\n' + '='.repeat(80));
+    console.log(`📊 GENERATING ${options.output.toUpperCase()} REPORT`);
+    console.log('='.repeat(80));
+    
+    await OutputFormatter.saveResults(allResults, {
+      format: options.output,
+      outputFile: options.outputFile,
+      includeMetadata: true
+    });
+    
+    reviewer.printReviewSummary(allResults);
+  }
+}
+
+function determineExitCode(allResults: any[]): number {
+  const criticalIssues = allResults.filter(r => 
+    r.hasIssues && (r.feedback.includes('Critical') || r.feedback.includes('🚨'))
+  ).length;
+  
+  const highIssues = allResults.filter(r => 
+    r.hasIssues && (r.feedback.includes('High') || r.feedback.includes('⚠️')) && 
+    !(r.feedback.includes('Critical') || r.feedback.includes('🚨'))
+  ).length;
+  
+  if (criticalIssues > 0) {
+    console.error(`\n❌ CI: Build failed due to ${criticalIssues} critical issues`);
+    return 1;
+  } else if (highIssues > 0) {
+    console.log(`\n⚠️ CI: Warning - ${highIssues} high priority issues found`);
+    return 0; // Exit 0 for warnings (don't fail build)
+  }
+  
+  return 0;
+}
+
+function getModelPriority(template: string): string[] {
+  const priorities: { [key: string]: string[] } = {
+    'security': ['claude-sonnet', 'claude-haiku', 'gemini-pro', 'gemini-flash'],
+    'combined': ['claude-sonnet', 'gemini-pro', 'claude-haiku', 'gemini-flash'], 
+    'quality': ['gemini-flash', 'claude-haiku', 'gemini-pro', 'claude-sonnet'],
+    'performance': ['gemini-flash', 'gemini-pro', 'claude-haiku', 'claude-sonnet'],
+    'typescript': ['gemini-flash', 'claude-haiku', 'gemini-pro', 'claude-sonnet']
+  };
+  return priorities[template] || priorities['quality'];
+}
+
+function getTemplates(templateName: string) {
+  switch (templateName) {
+    case 'quality':
+      return [qualityTemplate];
+    case 'security':
+      return [securityTemplate];
+    case 'performance':
+      return [performanceTemplate];
+    case 'typescript':
+      return [typescriptTemplate];
+    case 'combined':
+      return [combinedTemplate];
+    case 'all':
+      return [qualityTemplate, securityTemplate, performanceTemplate, typescriptTemplate];
+    default:
+      throw new Error(`Unknown template: ${templateName}`);
+  }
+}
+
+// Removed checkClaudeCodeAuth() - now using AuthManager.checkAuthentication()
 
 function printHelp(): void {
   console.log(`
@@ -529,46 +728,79 @@ USAGE:
 ARGUMENTS:
   path                 Path to file or directory to review (default: current directory)
 
-OPTIONS:
-  --template <name>    Review template to use (default: quality)
-                       Available: quality
-  --yes, -y           Skip confirmation prompt
-  --config            Show current configuration
-  --setup             Run interactive setup wizard
-  --status            Show model status and rate limits
-  --model-status      Alias for --status
-  --help, -h          Show this help message
+CORE OPTIONS:
+  --template <name>    Review template: quality, security, performance, typescript, combined, all
+  --output <format>    Output format: terminal, markdown, json, html
+  --output-file <file> Save results to file
+
+MULTI-MODEL OPTIONS:
+  --multi-model        Enable smart multi-model selection
+  --compare-models     Compare results from multiple AI models
+  --model <name>       Force specific model: claude-sonnet, claude-haiku, gemini-pro, gemini-flash
+  --auto-fallback      Smart model selection with automatic fallbacks when models unavailable
+
+PERFORMANCE & EFFICIENCY:
+  --incremental        Only review changed files
+  --compare-with <ref> Compare with branch/commit
+  --resume             Resume interrupted review session
+  --no-cache           Disable caching
+  --clear-cache        Clear review cache
+
+DEVELOPER EXPERIENCE:
+  --interactive, -i    Interactive file selection
+  --watch, -w          Watch mode for continuous review
+  --ci-mode            CI-optimized mode (no prompts, exit codes)
+  --yes, -y            Skip confirmation prompts
+  --allow-dirty        Allow uncommitted changes
+
+STATUS & CONFIG:
+  --status             Show model status and rate limits
+  --model-status       Alias for --status
+  --config             Show current configuration
+  --setup              Run interactive setup wizard
+  --help, -h           Show this help message
 
 EXAMPLES:
-  code-review                          # Review current directory with default template
-  code-review ./src                    # Review src directory
-  code-review component.tsx            # Review single file
-  code-review --template quality ./src # Review with specific template
-  code-review --setup                  # Configure API key and settings
+  code-review                                    # Review current directory with default template
+  code-review ./src                              # Review src directory
+  code-review --template security ./src          # Security-focused review
+  code-review --multi-model --template combined ./src  # Comprehensive multi-model review
+  code-review --interactive --template quality ./src   # Interactive file selection
+  code-review --watch --template combined ./src        # Watch mode for continuous development
+  code-review --auto-fallback --template security ./src # Auto-fallback model selection
+  code-review --incremental --template combined ./     # Incremental review (only changed files)
+  code-review --resume ./src                           # Resume interrupted review
+  code-review --status                               # Check model status and rate limits
+  code-review --ci-mode --output json ./src           # CI mode with JSON output
 
 CONFIGURATION:
   Configuration is stored in .codereview.json in your project root.
   Use --setup to create or modify configuration interactively.
 
 AUTHENTICATION:
-  Claude Code (recommended):
+  Claude Code (recommended for local development):
     claude setup-token                # Authenticate with your subscription
   
-  Direct API (alternative):
+  API Key (universal - works everywhere):
     ANTHROPIC_API_KEY              # Environment variable
-    code-review --setup            # Interactive configuration
+    GEMINI_API_KEY                 # Environment variable (optional but recommended)
+    
+  Interactive setup:
+    code-review --setup            # Configure any authentication method
 `);
 }
 
 function showConfig(): void {
   const configManager = new ConfigManager();
   const config = configManager.load();
-  const hasClaudeCode = checkClaudeCodeAuth();
+  const authConfig = AuthManager.checkAuthentication();
   
   console.log('\n📋 Current Configuration:');
   console.log(`   Config file: ${configManager.exists() ? '✅ Found' : '❌ Not found (using defaults)'}`);  
-  console.log(`   Claude Code auth: ${hasClaudeCode ? '✅ Authenticated' : '❌ Not authenticated'}`);  
+  console.log(`   Claude Code auth: ${authConfig.claudeCodeAvailable ? '✅ Authenticated' : '❌ Not authenticated'}`);  
   console.log(`   API Key: ${config.apiKey ? '✅ Set in config' : process.env.ANTHROPIC_API_KEY ? '✅ Set in environment' : '❌ Not set'}`);
+  console.log(`   Gemini API Key: ${config.geminiApiKey ? '✅ Set in config' : process.env.GEMINI_API_KEY ? '✅ Set in environment' : '❌ Not set'}`);
+  console.log(`   Preferred auth: ${AuthManager.getAuthDescription()}`);
   console.log(`   Max file size: ${Math.round(config.maxFileSize / 1024)}KB`);
   console.log(`   Default template: ${config.defaultTemplate}`);
   console.log(`   Output format: ${config.outputFormat}`);
@@ -581,7 +813,7 @@ async function showModelStatus(): Promise<void> {
   
   const configManager = new ConfigManager();
   const config = configManager.load();
-  const hasClaudeCode = checkClaudeCodeAuth();
+  const authConfig = AuthManager.checkAuthentication();
   
   // Initialize status checker
   const statusChecker = new ModelStatusChecker();
@@ -589,7 +821,7 @@ async function showModelStatus(): Promise<void> {
   // Determine available models based on authentication
   const availableModels = [];
   
-  if (hasClaudeCode || config.apiKey || process.env.ANTHROPIC_API_KEY) {
+  if (authConfig.claudeCodeAvailable || authConfig.apiKeyAvailable || config.apiKey) {
     availableModels.push('claude-sonnet', 'claude-haiku');
   }
   
@@ -598,7 +830,9 @@ async function showModelStatus(): Promise<void> {
   }
   
   if (availableModels.length === 0) {
-    console.error('❌ No API keys configured. Use --setup to configure authentication.');
+    console.error('❌ No authentication configured.');
+    const instructions = AuthManager.getSetupInstructions();
+    instructions.forEach(instruction => console.error(instruction));
     return;
   }
   
@@ -627,26 +861,46 @@ async function setupWizard(): Promise<void> {
   
   const configManager = new ConfigManager();
   const currentConfig = configManager.load();
-  const hasClaudeCode = checkClaudeCodeAuth();
+  const authConfig = AuthManager.checkAuthentication();
 
-  // Show authentication status
-  if (hasClaudeCode) {
+  // Show current authentication status
+  console.log('🔍 Current Authentication Status:');
+  console.log(`   ${AuthManager.getAuthDescription()}`);
+  
+  if (authConfig.claudeCodeAvailable) {
     console.log('✅ Claude Code authentication detected - you\'re all set!');
     console.log('   Using your subscription with higher rate limits.\n');
+  } else if (authConfig.oauthTokenAvailable) {
+    console.log('✅ OAuth token detected - perfect for CI/CD!');
+    console.log('   You can also set up other authentication methods below.\n');
+  } else if (authConfig.apiKeyAvailable) {
+    console.log('✅ API key detected - you\'re authenticated!');
+    console.log('   You can also set up other authentication methods below.\n');
   } else {
-    console.log('❌ Claude Code not authenticated');
-    console.log('   Recommended: Run `claude setup-token` to use your subscription benefits');
-    console.log('   Alternative: Set up an API key below\n');
+    console.log('❌ No authentication detected');
+    console.log('   Choose an authentication method below\n');
   }
 
-  // API Key (optional if Claude Code is authenticated)
+  // API Key (optional if other auth methods are available)
   let apiKey = '';
-  if (!hasClaudeCode || await askConfirmation('Do you want to set up an API key anyway?', false)) {
+  if (!authConfig.claudeCodeAvailable || await askConfirmation('Do you want to set up/update an API key?', false)) {
     apiKey = await askInput(
       'Enter your Anthropic API key (or press Enter to skip):',
       currentConfig.apiKey
     );
+    
+    if (!apiKey && !authConfig.claudeCodeAvailable) {
+      console.log('\n💡 Alternative authentication method:');
+      console.log('   Claude Code: Run `claude setup-token` (recommended for local dev)');
+      console.log('');
+    }
   }
+
+  // Gemini API Key
+  const geminiApiKey = await askInput(
+    'Enter your Gemini API key (or press Enter to skip):',
+    currentConfig.geminiApiKey
+  );
 
   // Max file size
   const maxFileSizeKB = await askInput(
@@ -670,6 +924,7 @@ async function setupWizard(): Promise<void> {
   const newConfig = {
     ...currentConfig,
     ...(apiKey && { apiKey }),
+    ...(geminiApiKey && { geminiApiKey }),
     maxFileSize: parseInt(maxFileSizeKB) * 1024,
     defaultTemplate: defaultTemplate as any,
     requireCleanGit
@@ -705,87 +960,6 @@ async function askConfirmation(question: string, defaultValue: boolean = true): 
       }
     });
   });
-}
-
-function getTemplates(templateName: string) {
-  switch (templateName) {
-    case 'quality':
-      return [qualityTemplate];
-    case 'security':
-      return [securityTemplate];
-    case 'performance':
-      return [performanceTemplate];
-    case 'typescript':
-      return [typescriptTemplate];
-    case 'combined':
-      return [combinedTemplate];
-    case 'all':
-      return [qualityTemplate, securityTemplate, performanceTemplate, typescriptTemplate];
-    default:
-      throw new Error(`Unknown template: ${templateName}`);
-  }
-}
-
-function checkClaudeCodeAuth(): boolean {
-  try {
-    // Check if claude command exists and get version
-    const version = execSync('claude --version', { 
-      encoding: 'utf8', 
-      stdio: 'pipe',
-      timeout: 5000
-    });
-    
-    console.log(`🔍 Detected Claude Code: ${version.trim()}`);
-    
-    // Test authentication using a simple model alias that should exist
-    const testResult = execSync('echo "Hello" | claude --print --model sonnet', {
-      encoding: 'utf8',
-      stdio: 'pipe',
-      timeout: 15000 // 15 second timeout for API call
-    });
-    
-    // Check if we got a successful response (any text response means auth worked)
-    const lowerResult = testResult.toLowerCase();
-    const hasAuthError = lowerResult.includes('authentication') ||
-                        lowerResult.includes('unauthorized') ||
-                        lowerResult.includes('not authenticated') ||
-                        lowerResult.includes('setup-token') ||
-                        lowerResult.includes('login required');
-    
-    // Max tokens error means auth worked, just wrong model limits
-    const hasMaxTokensError = lowerResult.includes('max_tokens');
-    
-    const isAuthenticated = !hasAuthError || hasMaxTokensError;
-    
-    console.log(`🔐 Authentication test: ${isAuthenticated ? 'Passed' : 'Failed - run claude setup-token'}`);
-    return isAuthenticated;
-    
-  } catch (error: any) {
-    console.log(`❌ Claude Code check failed: ${error.message}`);
-    
-    // Show more details about the error
-    if (error.stderr) {
-      console.log(`   stderr: ${error.stderr.toString()}`);
-    }
-    if (error.stdout) {
-      console.log(`   stdout: ${error.stdout.toString()}`);
-      
-      // Check if the error is just max_tokens (which means auth actually works)
-      const stdout = error.stdout.toString().toLowerCase();
-      if (stdout.includes('max_tokens')) {
-        console.log(`🔐 Authentication actually works (just a max_tokens limit issue)`);
-        return true;
-      }
-      
-      // Check if it's a model not found error (which also means auth works)
-      if (stdout.includes('not_found_error') && stdout.includes('model')) {
-        console.log(`🔐 Authentication works (just wrong model name)`);
-        return true;
-      }
-    }
-    
-    return false;
-  }
 }
 
 // Run the main function

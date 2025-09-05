@@ -6,6 +6,8 @@ import { TokenTracker } from './token-tracker.js';
 import { ReviewTemplate } from '../templates/quality.js';
 import { CacheManager } from '../utils/cache-manager.js';
 import { ModelStatusChecker } from '../utils/model-status-checker.js';
+import { ErrorHandler } from '../utils/error-handler.js';
+import { AuthManager } from '../utils/auth-manager.js';
 
 export interface ReviewResult {
   filePath: string;
@@ -17,7 +19,7 @@ export interface ReviewResult {
   };
   timestamp: Date;
   hasIssues: boolean;
-  authMethod: 'claude-code' | 'api-key';
+  authMethod: 'claude-code' | 'api-key' | 'oauth-token';
 }
 
 export class CodeReviewer {
@@ -26,22 +28,48 @@ export class CodeReviewer {
   private useClaudeCode: boolean;
   private cacheManager: CacheManager;
   private statusChecker: ModelStatusChecker;
+  private authMethod: 'claude-code' | 'api-key' | 'oauth-token';
 
   constructor(apiKey?: string, forceClaudeCode?: boolean, enableCache: boolean = true) {
     this.tokenTracker = new TokenTracker();
     this.cacheManager = enableCache ? new CacheManager() : null as any;
     this.statusChecker = new ModelStatusChecker();
     
-    // Use the forceClaudeCode flag if provided, otherwise check authentication
-    this.useClaudeCode = forceClaudeCode || this.checkClaudeCodeAuth();
+    // Check all available authentication methods
+    const auth = AuthManager.checkAuthentication();
     
-    if (this.useClaudeCode) {
+    // Use the forceClaudeCode flag if provided, otherwise use best available
+    if (forceClaudeCode && auth.claudeCodeAvailable) {
+      this.useClaudeCode = true;
+      this.authMethod = 'claude-code';
       console.log('✅ Using Claude Code authentication');
-    } else if (apiKey) {
+    } else if (auth.preferredMethod === 'claude-code' && auth.claudeCodeAvailable) {
+      this.useClaudeCode = true;
+      this.authMethod = 'claude-code';
+      console.log('✅ Using Claude Code authentication');
+    } else if (auth.preferredMethod === 'oauth-token' && auth.oauthTokenAvailable) {
+      this.useClaudeCode = false;
+      this.authMethod = 'oauth-token';
+      console.log('🎫 Using Claude OAuth Token authentication');
+      
+      // Initialize Anthropic client with OAuth token
+      this.anthropic = new Anthropic({
+        apiKey: 'dummy', // Required by SDK but not used with OAuth
+        defaultHeaders: {
+          'Authorization': `Bearer ${process.env.CLAUDE_CODE_OAUTH_TOKEN}`
+        }
+      });
+    } else if ((auth.preferredMethod === 'api-key' && auth.apiKeyAvailable) || apiKey) {
+      this.useClaudeCode = false;
+      this.authMethod = 'api-key';
       console.log('🔑 Using API key authentication');
-      this.anthropic = new Anthropic({ apiKey });
+      
+      const key = apiKey || process.env.ANTHROPIC_API_KEY;
+      this.anthropic = new Anthropic({ apiKey: key });
     } else {
-      throw new Error('No authentication method available. Either authenticate with Claude Code or provide an API key.');
+      ErrorHandler.handleAuthenticationError({
+        operation: 'CodeReviewer initialization'
+      });
     }
   }
 
@@ -135,12 +163,16 @@ export class CodeReviewer {
         },
         timestamp: new Date(),
         hasIssues,
-        authMethod: 'claude-code'
+        authMethod: this.authMethod
       };
 
     } catch (error) {
-      console.error(`❌ Error reviewing ${file.relativePath} with Claude Code:`, error);
-      throw error;
+      ErrorHandler.handleClaudeCodeError(error, {
+        operation: 'reviewing file with Claude Code',
+        filePath: file.relativePath,
+        template: template.name,
+        authMethod: 'claude-code'
+      });
     }
   }
 
@@ -195,12 +227,37 @@ export class CodeReviewer {
         tokensUsed,
         timestamp: new Date(),
         hasIssues,
-        authMethod: 'api-key'
+        authMethod: this.authMethod
       };
 
     } catch (error) {
-      console.error(`❌ Error reviewing ${file.relativePath}:`, error);
-      throw error;
+      // Check if it's a network error
+      if (error.code === 'ECONNREFUSED' || error.code === 'ENOTFOUND' || error.code === 'ETIMEDOUT') {
+        ErrorHandler.handleNetworkError(error, {
+          operation: 'API request to Anthropic',
+          filePath: file.relativePath,
+          template: template.name,
+          authMethod: 'api-key'
+        });
+      }
+      
+      // Check if it's an Anthropic API error
+      if (error.status || error.error) {
+        ErrorHandler.handleAnthropicAPIError(error, {
+          operation: 'reviewing file with Anthropic API',
+          filePath: file.relativePath,
+          template: template.name,
+          authMethod: 'api-key'
+        });
+      }
+      
+      // Generic error fallback
+      ErrorHandler.handleGenericError(error, {
+        operation: 'reviewing file with API',
+        filePath: file.relativePath,
+        template: template.name,
+        authMethod: 'api-key'
+      });
     }
   }
 
@@ -263,7 +320,7 @@ export class CodeReviewer {
           
           return result;
         } catch (error) {
-          console.error(`Failed to review ${file.relativePath}, skipping...`);
+          ErrorHandler.handleFileError(error, file.relativePath);
           return null;
         }
       });

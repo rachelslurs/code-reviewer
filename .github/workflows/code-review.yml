@@ -1,0 +1,281 @@
+name: 'Code Review with Claude API'
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main, develop]
+  push:
+    branches: [main, develop]
+  workflow_dispatch:
+    inputs:
+      review_template:
+        description: 'Review template to use'
+        required: false
+        default: 'combined'
+        type: choice
+        options:
+          - quality
+          - security
+          - performance
+          - typescript
+          - combined
+          - all
+
+jobs:
+  claude-code-review:
+    name: 'Claude AI Code Review'
+    runs-on: ubuntu-latest
+    
+    permissions:
+      contents: read
+      pull-requests: write  # For commenting on PRs
+      actions: read
+    
+    steps:
+      - name: 'Checkout Repository'
+        uses: actions/checkout@v4
+        with:
+          # Fetch full history for incremental reviews
+          fetch-depth: 0
+          
+      - name: 'Setup Node.js and Bun'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          # Remove cache since we're using Bun, not npm
+      
+      - name: 'Setup Bun'
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+      
+      - name: 'Install Dependencies'
+        run: |
+          bun install
+          
+      - name: 'Setup Code Review Agent'
+        run: |
+          # Build the project first
+          bun run build
+          
+          # Make the binary executable
+          chmod +x ./bin/code-review
+          
+          # Test that it works
+          ./bin/code-review --help
+          
+      - name: 'Debug CI Setup'
+        if: always()
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          chmod +x ./scripts/ci/enhanced-debug.sh
+          ./scripts/ci/enhanced-debug.sh
+          
+      - name: 'Configure Authentication'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}  # Optional fallback
+        run: |
+          echo "🔍 Checking authentication..."
+          
+          # Verify API key is available
+          if [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "❌ ANTHROPIC_API_KEY secret not configured"
+            echo "Please add your Anthropic API key to repository secrets"
+            exit 1
+          fi
+          
+          echo "✅ Anthropic API key configured"
+          
+          # Show config (without revealing secrets)
+          ./bin/code-review --config
+          
+      - name: 'Run Incremental Code Review'
+        if: github.event_name == 'pull_request'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          echo "🔍 Running incremental code review for PR..."
+          
+          # Get the template from workflow input or use default
+          TEMPLATE="${{ github.event.inputs.review_template || 'combined' }}"
+          
+          # Use enhanced safe review script with incremental mode
+          chmod +x ./scripts/ci/enhanced-safe-review.sh
+          ./scripts/ci/enhanced-safe-review.sh "$TEMPLATE" . "true" "origin/${{ github.base_ref }}"
+            
+      - name: 'Run Full Code Review'
+        if: github.event_name == 'push'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          echo "🔍 Running full code review for push to ${{ github.ref_name }}..."
+          
+          # Get the template from workflow input or use default
+          TEMPLATE="${{ github.event.inputs.review_template || 'security' }}"
+          
+          # Use enhanced safe review script for full review
+          chmod +x ./scripts/ci/enhanced-safe-review.sh
+          ./scripts/ci/enhanced-safe-review.sh "$TEMPLATE" . "false" ""
+            
+      - name: 'Debug Review Results'
+        if: always()
+        run: |
+          chmod +x ./scripts/ci/enhanced-debug.sh
+          ./scripts/ci/enhanced-debug.sh
+          
+      - name: 'Upload Review Results'
+        if: always() && hashFiles('review-results.json') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: code-review-results
+          path: review-results.json
+          retention-days: 30
+          
+      - name: 'Comment on Pull Request'
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            
+            // Read review results
+            let reviewResults = [];
+            try {
+              const data = fs.readFileSync('review-results.json', 'utf8');
+              const parsed = JSON.parse(data);
+              
+              // Handle both array and single object formats
+              reviewResults = Array.isArray(parsed) ? parsed : [parsed];
+            } catch (error) {
+              console.log('No review results found or invalid JSON:', error.message);
+              return;
+            }
+            
+            if (reviewResults.length === 0) {
+              console.log('No review results to process');
+              return;
+            }
+            
+            // Format results for PR comment
+            const hasIssues = reviewResults.some(r => r.hasIssues);
+            const totalFiles = reviewResults.length;
+            const filesWithIssues = reviewResults.filter(r => r.hasIssues).length;
+            
+            let comment = `## 🤖 Claude AI Code Review\n\n`;
+            
+            if (hasIssues) {
+              comment += `**⚠️ Issues Found**: ${filesWithIssues}/${totalFiles} files have issues\n\n`;
+            } else {
+              comment += `**✅ Clean Code**: No issues found in ${totalFiles} files\n\n`;
+            }
+            
+            // Add detailed results
+            if (hasIssues) {
+              comment += `### 📋 Detailed Results\n\n`;
+              
+              for (const result of reviewResults) {
+                if (result.hasIssues) {
+                  comment += `#### 📄 \`${result.filePath}\`\n`;
+                  comment += `${result.feedback}\n\n`;
+                }
+              }
+            }
+            
+            // Add footer
+            comment += `---\n`;
+            comment += `*Review powered by Claude AI with API key authentication*\n`;
+            comment += `*Template: ${reviewResults[0]?.template || 'combined'}*`;
+            
+            // Post comment
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
+            
+      - name: 'Set Exit Code'
+        if: always()
+        run: |
+          # Check if there were critical issues
+          if [ -f "review-results.json" ]; then
+            # Handle both array and object JSON formats
+            CRITICAL_ISSUES=$(jq -r '
+              if type == "array" then
+                [.[] | select(.hasIssues and (.feedback | contains("Critical") or contains("🚨")))] | length
+              else
+                if .hasIssues and (.feedback | contains("Critical") or contains("🚨")) then 1 else 0 end
+              end
+            ' review-results.json 2>/dev/null || echo "0")
+            
+            echo "📊 Critical issues found: $CRITICAL_ISSUES"
+            
+            if [ "$CRITICAL_ISSUES" -gt 0 ]; then
+              echo "❌ Found $CRITICAL_ISSUES critical issues - failing build"
+              exit 1
+            else
+              echo "✅ No critical issues found"
+            fi
+          else
+            echo "⚠️ No review results file found - treating as success"
+          fi
+
+  # Optional: Security-focused review for sensitive files
+  security-review:
+    name: 'Security Review'
+    runs-on: ubuntu-latest
+    if: contains(github.event.pull_request.changed_files, 'auth') || contains(github.event.pull_request.changed_files, 'security') || contains(github.event.pull_request.changed_files, '.env')
+    
+    permissions:
+      contents: read
+      pull-requests: write
+    
+    steps:
+      - name: 'Checkout Repository'
+        uses: actions/checkout@v4
+        
+      - name: 'Setup Node.js and Bun'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          # Remove cache since we're using Bun, not npm
+      
+      - name: 'Setup Bun'
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+      
+      - name: 'Install Dependencies'
+        run: bun install
+          
+      - name: 'Setup Code Review Agent'
+        run: |
+          bun run build
+          chmod +x ./bin/code-review
+          
+      - name: 'Run Security Review'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          echo "🔐 Running security-focused review..."
+          
+          ./bin/code-review \
+            --template security \
+            --incremental \
+            --compare-with "origin/${{ github.base_ref }}" \
+            --ci-mode \
+            --output json \
+            --output-file "security-results.json" \
+            . || echo "Security review completed with exit code $?"
+            
+      - name: 'Upload Security Results'
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-review-results
+          path: security-results.json
+          retention-days: 30
