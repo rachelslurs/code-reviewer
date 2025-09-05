@@ -22,24 +22,30 @@ create_fallback_json() {
     local exit_code=$1
     local error_message=$2
     
-    cat > "$OUTPUT_FILE" << EOF
+    # Create a consistent JSON array format
+    cat > "$OUTPUT_FILE" << 'EOF'
 [
   {
     "filePath": "CI_ERROR",
-    "template": "$TEMPLATE",
+    "template": "TEMPLATE_PLACEHOLDER",
     "hasIssues": true,
-    "feedback": "⚠️ Code review failed: $error_message (exit code: $exit_code)",
+    "feedback": "ERROR_MESSAGE_PLACEHOLDER",
     "tokensUsed": {
       "input": 0,
       "output": 0
     },
-    "timestamp": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
+    "timestamp": "TIMESTAMP_PLACEHOLDER",
     "authMethod": "oauth-token",
     "modelUsed": "none",
     "responseTime": 0
   }
 ]
 EOF
+    
+    # Replace placeholders with actual values (safer than direct substitution)
+    sed -i "s/TEMPLATE_PLACEHOLDER/$TEMPLATE/g" "$OUTPUT_FILE"
+    sed -i "s/ERROR_MESSAGE_PLACEHOLDER/⚠️ Code review failed: $error_message (exit code: $exit_code)/g" "$OUTPUT_FILE"
+    sed -i "s/TIMESTAMP_PLACEHOLDER/$(date -u +"%Y-%m-%dT%H:%M:%SZ")/g" "$OUTPUT_FILE"
     
     echo "📝 Created fallback JSON: $OUTPUT_FILE"
 }

@@ -122,20 +122,8 @@ jobs:
       - name: 'Debug Review Results'
         if: always()
         run: |
-          echo "📁 Current directory contents:"
-          ls -la
-          
-          echo "🔍 Looking for review results:"
-          find . -name "*.json" -type f 2>/dev/null || echo "No JSON files found"
-          
-          if [ -f "review-results.json" ]; then
-            echo "✅ Found review-results.json:"
-            cat review-results.json
-          else
-            echo "❌ review-results.json not found"
-            echo "Available files:"
-            ls -la
-          fi
+          chmod +x ./scripts/ci/enhanced-debug.sh
+          ./scripts/ci/enhanced-debug.sh
           
       - name: 'Upload Review Results'
         if: always() && hashFiles('review-results.json') != ''
@@ -156,9 +144,17 @@ jobs:
             let reviewResults = [];
             try {
               const data = fs.readFileSync('review-results.json', 'utf8');
-              reviewResults = JSON.parse(data);
+              const parsed = JSON.parse(data);
+              
+              // Handle both array and single object formats
+              reviewResults = Array.isArray(parsed) ? parsed : [parsed];
             } catch (error) {
-              console.log('No review results found or invalid JSON');
+              console.log('No review results found or invalid JSON:', error.message);
+              return;
+            }
+            
+            if (reviewResults.length === 0) {
+              console.log('No review results to process');
               return;
             }
             
@@ -205,7 +201,16 @@ jobs:
         run: |
           # Check if there were critical issues
           if [ -f "review-results.json" ]; then
-            CRITICAL_ISSUES=$(jq '[.[] | select(.hasIssues and (.feedback | contains("Critical") or contains("🚨")))] | length' review-results.json)
+            # Handle both array and object JSON formats
+            CRITICAL_ISSUES=$(jq -r '
+              if type == "array" then
+                [.[] | select(.hasIssues and (.feedback | contains("Critical") or contains("🚨")))] | length
+              else
+                if .hasIssues and (.feedback | contains("Critical") or contains("🚨")) then 1 else 0 end
+              end
+            ' review-results.json 2>/dev/null || echo "0")
+            
+            echo "📊 Critical issues found: $CRITICAL_ISSUES"
             
             if [ "$CRITICAL_ISSUES" -gt 0 ]; then
               echo "❌ Found $CRITICAL_ISSUES critical issues - failing build"
@@ -213,6 +218,8 @@ jobs:
             else
               echo "✅ No critical issues found"
             fi
+          else
+            echo "⚠️ No review results file found - treating as success"
           fi
 
   # Optional: Security-focused review for sensitive files

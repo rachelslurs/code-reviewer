@@ -56,6 +56,11 @@ test-oauth: build ## Test OAuth token authentication
 	@chmod +x scripts/test/oauth-token-test.sh
 	@./scripts/test/oauth-token-test.sh
 
+test-debug-ci: ## Test enhanced CI debugging
+	@echo "🔍 Testing CI debug tools..."
+	@chmod +x scripts/ci/enhanced-debug.sh
+	@./scripts/ci/enhanced-debug.sh
+
 # CI/CD commands
 setup-ci: ## Setup CI/CD integration files
 	@bash scripts/ci/setup.sh
