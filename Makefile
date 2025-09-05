@@ -60,6 +60,11 @@ test-api-key: build ## Test API key authentication
 	@chmod +x scripts/test/api-key-test.sh
 	@./scripts/test/api-key-test.sh
 
+test-models: ## Test Claude model names with API
+	@echo "🤖 Testing model names..."
+	@chmod +x scripts/test/model-names-test.sh
+	@./scripts/test/model-names-test.sh
+
 test-debug-ci: ## Test enhanced CI debugging
 	@echo "🔍 Testing CI debug tools..."
 	@chmod +x scripts/ci/enhanced-debug.sh
