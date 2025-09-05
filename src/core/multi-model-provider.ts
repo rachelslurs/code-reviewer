@@ -91,9 +91,14 @@ export class MultiModelProvider {
     console.log(`   Anthropic API key: ${apiKeys.anthropic ? 'Yes' : 'No'}`);
     console.log(`   Gemini API key: ${apiKeys.gemini ? 'Yes (' + apiKeys.gemini.slice(0, 8) + '...)' : 'No'}`);
 
-    // Initialize Anthropic (Claude Code or API key)
+    // Initialize Anthropic (Claude Code, API key, or OAuth token)
     if (!useClaudeCode && apiKeys.anthropic) {
-      this.anthropic = new Anthropic({ apiKey: apiKeys.anthropic });
+      try {
+        this.anthropic = new Anthropic({ apiKey: apiKeys.anthropic });
+        console.log('✅ Anthropic client initialized successfully');
+      } catch (error) {
+        console.error('❌ Failed to initialize Anthropic client:', error);
+      }
     }
 
     // Initialize Gemini

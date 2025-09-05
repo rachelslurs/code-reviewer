@@ -523,6 +523,9 @@ function displayStartupInfo(options: CLIOptions, gitManager: GitManager, authInf
 }
 
 async function initializeReviewer(options: CLIOptions, authInfo: any, config: any) {
+  // Get proper Anthropic configuration (handles OAuth tokens)
+  const anthropicConfig = AuthManager.getAnthropicConfig();
+  
   if (options.autoFallback) {
     // Auto-fallback reviewer using multi-model infrastructure
     const fallbackConfig = {
@@ -545,7 +548,7 @@ async function initializeReviewer(options: CLIOptions, authInfo: any, config: an
     
     return new MultiModelReviewer(
       {
-        anthropic: authInfo.hasClaudeCode ? undefined : authInfo.apiKey,
+        anthropic: anthropicConfig.apiKey,
         gemini: authInfo.geminiApiKey
       },
       authInfo.hasClaudeCode,
@@ -565,7 +568,7 @@ async function initializeReviewer(options: CLIOptions, authInfo: any, config: an
     
     return new MultiModelReviewer(
       {
-        anthropic: authInfo.hasClaudeCode ? undefined : authInfo.apiKey,
+        anthropic: anthropicConfig.apiKey,
         gemini: authInfo.geminiApiKey
       },
       authInfo.hasClaudeCode,
@@ -605,7 +608,7 @@ async function initializeReviewer(options: CLIOptions, authInfo: any, config: an
     } else {
       // Traditional Claude reviewer
       return new CodeReviewer(
-        authInfo.hasClaudeCode ? undefined : authInfo.apiKey,
+        anthropicConfig.apiKey,
         authInfo.hasClaudeCode,
         !options.noCache,
         authInfo.authConfig

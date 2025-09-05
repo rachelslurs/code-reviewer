@@ -48,11 +48,9 @@ export class AuthManager {
     const auth = this.checkAuthentication();
     
     if (auth.preferredMethod === 'oauth-token' && auth.oauthTokenAvailable) {
+      // For OAuth tokens, use them directly as the API key
       return {
-        apiKey: undefined,
-        authHeaders: {
-          'Authorization': `Bearer ${process.env.CLAUDE_CODE_OAUTH_TOKEN}`
-        }
+        apiKey: process.env.CLAUDE_CODE_OAUTH_TOKEN
       };
     } else if (auth.preferredMethod === 'api-key' && auth.apiKeyAvailable) {
       return {
