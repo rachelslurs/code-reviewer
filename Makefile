@@ -51,10 +51,14 @@ test-ci-fix: build ## Test CI fixes locally
 	@chmod +x scripts/test/ci-fix-test.sh
 	@./scripts/test/ci-fix-test.sh
 
-test-oauth: build ## Test OAuth token authentication
-	@echo "🎫 Testing OAuth token..."
-	@chmod +x scripts/test/oauth-token-test.sh
-	@./scripts/test/oauth-token-test.sh
+test-oauth: build ## Test OAuth token authentication (DEPRECATED)
+	@echo "⚠️ OAuth tokens are not supported by Anthropic API"
+	@echo "Use 'make test-api-key' instead"
+
+test-api-key: build ## Test API key authentication
+	@echo "🔑 Testing API key..."
+	@chmod +x scripts/test/api-key-test.sh
+	@./scripts/test/api-key-test.sh
 
 test-debug-ci: ## Test enhanced CI debugging
 	@echo "🔍 Testing CI debug tools..."

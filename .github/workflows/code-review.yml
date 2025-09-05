@@ -1,4 +1,4 @@
-name: 'Code Review with Claude OAuth'
+name: 'Code Review with Claude API'
 
 on:
   pull_request:
@@ -66,9 +66,12 @@ jobs:
           
       - name: 'Debug CI Setup'
         if: always()
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
-          chmod +x ./scripts/ci/debug-ci.sh
-          ./scripts/ci/debug-ci.sh
+          chmod +x ./scripts/ci/enhanced-debug.sh
+          ./scripts/ci/enhanced-debug.sh
           
       - name: 'Configure Authentication'
         env:
@@ -185,7 +188,7 @@ jobs:
             
             // Add footer
             comment += `---\n`;
-            comment += `*Review powered by Claude AI with OAuth token authentication*\n`;
+            comment += `*Review powered by Claude AI with API key authentication*\n`;
             comment += `*Template: ${reviewResults[0]?.template || 'combined'}*`;
             
             // Post comment
