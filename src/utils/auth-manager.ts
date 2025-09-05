@@ -1,13 +1,12 @@
 /**
  * Enhanced authentication utility for the Code Review Agent
- * Supports Claude Code, API keys, and OAuth tokens for CI/CD environments
+ * Supports Claude Code and API keys for all environments
  */
 
 export interface AuthConfig {
   claudeCodeAvailable: boolean;
   apiKeyAvailable: boolean;
-  oauthTokenAvailable: boolean;
-  preferredMethod: 'claude-code' | 'api-key' | 'oauth-token';
+  preferredMethod: 'claude-code' | 'api-key';
   authMethod?: string;
 }
 
@@ -18,15 +17,12 @@ export class AuthManager {
   static checkAuthentication(): AuthConfig {
     const claudeCodeAvailable = this.checkClaudeCodeAuth();
     const apiKeyAvailable = !!(process.env.ANTHROPIC_API_KEY);
-    const oauthTokenAvailable = !!(process.env.CLAUDE_CODE_OAUTH_TOKEN);
 
     // Determine preferred method
-    let preferredMethod: 'claude-code' | 'api-key' | 'oauth-token';
+    let preferredMethod: 'claude-code' | 'api-key';
     
     if (claudeCodeAvailable) {
       preferredMethod = 'claude-code';
-    } else if (oauthTokenAvailable) {
-      preferredMethod = 'oauth-token';
     } else if (apiKeyAvailable) {
       preferredMethod = 'api-key';
     } else {
@@ -36,23 +32,17 @@ export class AuthManager {
     return {
       claudeCodeAvailable,
       apiKeyAvailable,
-      oauthTokenAvailable,
       preferredMethod
     };
   }
 
   /**
-   * Get the appropriate API key or configuration for Anthropic client
+   * Get the appropriate API key for Anthropic client
    */
-  static getAnthropicConfig(): { apiKey?: string; authHeaders?: Record<string, string> } {
+  static getAnthropicConfig(): { apiKey?: string } {
     const auth = this.checkAuthentication();
     
-    if (auth.preferredMethod === 'oauth-token' && auth.oauthTokenAvailable) {
-      // For OAuth tokens, use them directly as the API key
-      return {
-        apiKey: process.env.CLAUDE_CODE_OAUTH_TOKEN
-      };
-    } else if (auth.preferredMethod === 'api-key' && auth.apiKeyAvailable) {
+    if (auth.preferredMethod === 'api-key' && auth.apiKeyAvailable) {
       return {
         apiKey: process.env.ANTHROPIC_API_KEY
       };
@@ -108,8 +98,6 @@ export class AuthManager {
     switch (auth.preferredMethod) {
       case 'claude-code':
         return '🔐 Claude Code (subscription)';
-      case 'oauth-token':
-        return '🎫 Claude OAuth Token';
       case 'api-key':
         return '🔑 Anthropic API Key';
       default:
@@ -122,7 +110,7 @@ export class AuthManager {
    */
   static validateAuthentication(): boolean {
     const auth = this.checkAuthentication();
-    return auth.claudeCodeAvailable || auth.apiKeyAvailable || auth.oauthTokenAvailable;
+    return auth.claudeCodeAvailable || auth.apiKeyAvailable;
   }
 
   /**
@@ -132,20 +120,18 @@ export class AuthManager {
     const auth = this.checkAuthentication();
     const instructions: string[] = [];
 
-    if (!auth.claudeCodeAvailable && !auth.apiKeyAvailable && !auth.oauthTokenAvailable) {
+    if (!auth.claudeCodeAvailable && !auth.apiKeyAvailable) {
       instructions.push('No authentication method available. Choose one:');
       instructions.push('');
-      instructions.push('Option 1 - Claude Code (Local Development):');
+      instructions.push('Option 1 - Claude Code (Recommended for Local Development):');
       instructions.push('  • Run: claude setup-token');
       instructions.push('  • Higher rate limits with subscription');
+      instructions.push('  • No API key needed');
       instructions.push('');
-      instructions.push('Option 2 - API Key (Local/CI):');
+      instructions.push('Option 2 - API Key (Universal - Works Everywhere):');
       instructions.push('  • Get key: https://console.anthropic.com/settings/keys');
       instructions.push('  • Set: export ANTHROPIC_API_KEY=your-key');
-      instructions.push('');
-      instructions.push('Option 3 - OAuth Token (CI/CD):');
-      instructions.push('  • Set: export CLAUDE_CODE_OAUTH_TOKEN=your-token');
-      instructions.push('  • Best for GitHub Actions and CI environments');
+      instructions.push('  • Works in any environment (local, CI/CD, etc.)');
     }
 
     return instructions;

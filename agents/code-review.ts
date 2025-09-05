@@ -393,7 +393,6 @@ async function determineAuthentication(options: CLIOptions, config: any) {
   const authConfig = AuthManager.checkAuthentication();
   const hasClaudeCode = authConfig.claudeCodeAvailable;
   const hasApiKey = authConfig.apiKeyAvailable || !!(config.apiKey);
-  const hasOAuthToken = authConfig.oauthTokenAvailable;
   const hasGeminiKey = !!(config.geminiApiKey || process.env.GEMINI_API_KEY);
   
   // Determine which models we need
@@ -418,7 +417,7 @@ async function determineAuthentication(options: CLIOptions, config: any) {
   }
   
   // Check authentication
-  const claudeAvailable = hasClaudeCode || hasApiKey || hasOAuthToken;
+  const claudeAvailable = hasClaudeCode || hasApiKey;
   const geminiAvailable = hasGeminiKey;
   
   if (options.autoFallback) {
@@ -450,7 +449,6 @@ async function determineAuthentication(options: CLIOptions, config: any) {
       errors.push('Claude authentication required (choose one):');
       errors.push('  • claude setup-token (recommended for local dev)');
       errors.push('  • Set ANTHROPIC_API_KEY environment variable');
-      errors.push('  • Set CLAUDE_CODE_OAUTH_TOKEN environment variable (for CI/CD)');
     }
     
     if (needsGemini && !geminiAvailable) {
@@ -473,8 +471,6 @@ async function determineAuthentication(options: CLIOptions, config: any) {
   const authMethods = [];
   if (hasClaudeCode && needsClaude) {
     authMethods.push('🔐 Claude Code (subscription)');
-  } else if (hasOAuthToken && needsClaude) {
-    authMethods.push('🎫 Claude OAuth Token (CI/CD)');
   } else if (hasApiKey && needsClaude) {
     authMethods.push('🔑 Claude API');
   }
@@ -496,7 +492,6 @@ async function determineAuthentication(options: CLIOptions, config: any) {
   return {
     hasClaudeCode,
     hasApiKey,
-    hasOAuthToken,
     hasGeminiKey,
     claudeAvailable,
     geminiAvailable,
@@ -786,12 +781,9 @@ AUTHENTICATION:
   Claude Code (recommended for local development):
     claude setup-token                # Authenticate with your subscription
   
-  Direct API (good for any environment):
+  API Key (universal - works everywhere):
     ANTHROPIC_API_KEY              # Environment variable
     GEMINI_API_KEY                 # Environment variable (optional but recommended)
-    
-  OAuth Token (best for CI/CD environments):
-    CLAUDE_CODE_OAUTH_TOKEN        # Environment variable
     
   Interactive setup:
     code-review --setup            # Configure any authentication method
@@ -807,7 +799,6 @@ function showConfig(): void {
   console.log(`   Config file: ${configManager.exists() ? '✅ Found' : '❌ Not found (using defaults)'}`);  
   console.log(`   Claude Code auth: ${authConfig.claudeCodeAvailable ? '✅ Authenticated' : '❌ Not authenticated'}`);  
   console.log(`   API Key: ${config.apiKey ? '✅ Set in config' : process.env.ANTHROPIC_API_KEY ? '✅ Set in environment' : '❌ Not set'}`);
-  console.log(`   OAuth Token: ${authConfig.oauthTokenAvailable ? '✅ Set in environment' : '❌ Not set'}`);
   console.log(`   Gemini API Key: ${config.geminiApiKey ? '✅ Set in config' : process.env.GEMINI_API_KEY ? '✅ Set in environment' : '❌ Not set'}`);
   console.log(`   Preferred auth: ${AuthManager.getAuthDescription()}`);
   console.log(`   Max file size: ${Math.round(config.maxFileSize / 1024)}KB`);
@@ -830,7 +821,7 @@ async function showModelStatus(): Promise<void> {
   // Determine available models based on authentication
   const availableModels = [];
   
-  if (authConfig.claudeCodeAvailable || authConfig.apiKeyAvailable || authConfig.oauthTokenAvailable || config.apiKey) {
+  if (authConfig.claudeCodeAvailable || authConfig.apiKeyAvailable || config.apiKey) {
     availableModels.push('claude-sonnet', 'claude-haiku');
   }
   
@@ -892,16 +883,15 @@ async function setupWizard(): Promise<void> {
 
   // API Key (optional if other auth methods are available)
   let apiKey = '';
-  if (!authConfig.claudeCodeAvailable && !authConfig.oauthTokenAvailable || await askConfirmation('Do you want to set up/update an API key?', false)) {
+  if (!authConfig.claudeCodeAvailable || await askConfirmation('Do you want to set up/update an API key?', false)) {
     apiKey = await askInput(
       'Enter your Anthropic API key (or press Enter to skip):',
       currentConfig.apiKey
     );
     
-    if (!apiKey && !authConfig.claudeCodeAvailable && !authConfig.oauthTokenAvailable) {
-      console.log('\n💡 Alternative authentication methods:');
-      console.log('   1. Claude Code: Run `claude setup-token` (recommended for local dev)');
-      console.log('   2. OAuth Token: Set CLAUDE_CODE_OAUTH_TOKEN env var (for CI/CD)');
+    if (!apiKey && !authConfig.claudeCodeAvailable) {
+      console.log('\n💡 Alternative authentication method:');
+      console.log('   Claude Code: Run `claude setup-token` (recommended for local dev)');
       console.log('');
     }
   }

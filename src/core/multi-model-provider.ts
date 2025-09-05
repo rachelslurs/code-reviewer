@@ -33,7 +33,7 @@ export interface ModelResponse {
 // Check: https://docs.anthropic.com/en/docs/about-claude/model-deprecations
 const CLAUDE_MODELS = {
   SONNET: 'claude-3-5-sonnet-20241220', // Current stable version
-  HAIKU: 'claude-3-5-haiku-20241220'    // Current stable version
+  HAIKU: 'claude-3-5-haiku-20241022	'    // Current stable version
 };
 
 export const AVAILABLE_MODELS: Record<string, ModelProvider> = {
@@ -96,6 +96,10 @@ export class MultiModelProvider {
       try {
         this.anthropic = new Anthropic({ apiKey: apiKeys.anthropic });
         console.log('✅ Anthropic client initialized successfully');
+        
+        // Test the connection with a minimal request
+        console.log('🧪 Testing Anthropic API connection...');
+        this.testAnthropicConnection();
       } catch (error) {
         console.error('❌ Failed to initialize Anthropic client:', error);
       }
@@ -321,31 +325,43 @@ export class MultiModelProvider {
         throw new Error('Anthropic API key not configured');
       }
 
-      const response = await this.anthropic.messages.create({
-        model: model.model,
-        max_tokens: 4000,
-        system: request.systemPrompt,
-        messages: [{
-          role: 'user',
-          content: `File: ${request.filename}\n\n${request.code}`
-        }]
-      });
+      try {
+        console.log(`📞 Calling Anthropic API with model: ${model.model}`);
+        
+        const response = await this.anthropic.messages.create({
+          model: model.model,
+          max_tokens: 4000,
+          system: request.systemPrompt,
+          messages: [{
+            role: 'user',
+            content: `File: ${request.filename}\n\n${request.code}`
+          }]
+        });
 
-      const content = response.content
-        .filter(block => block.type === 'text')
-        .map(block => (block as any).text)
-        .join('\n');
+        console.log(`✅ Anthropic API call successful for ${model.model}`);
 
-      return {
-        content,
-        model: model.model,
-        provider: 'claude',
-        tokensUsed: {
-          input: response.usage.input_tokens,
-          output: response.usage.output_tokens
-        },
-        responseTime: Date.now() - startTime
-      };
+        const content = response.content
+          .filter(block => block.type === 'text')
+          .map(block => (block as any).text)
+          .join('\n');
+
+        return {
+          content,
+          model: model.model,
+          provider: 'claude',
+          tokensUsed: {
+            input: response.usage.input_tokens,
+            output: response.usage.output_tokens
+          },
+          responseTime: Date.now() - startTime
+        };
+      } catch (error: any) {
+        console.error(`❌ Anthropic API call failed for ${model.model}:`);
+        console.error(`   Status: ${error.status || 'unknown'}`);
+        console.error(`   Error: ${error.message || error}`);
+        console.error(`   Details: ${JSON.stringify(error.error || error, null, 2)}`);
+        throw error;
+      }
     }
   }
 
@@ -394,6 +410,36 @@ export class MultiModelProvider {
       
       console.error(`❌ Gemini API error:`, error.message || error);
       throw error;
+    }
+  }
+
+  /**
+   * Test Anthropic API connection
+   */
+  private async testAnthropicConnection() {
+    if (!this.anthropic) return;
+    
+    try {
+      // Make a minimal test request to verify authentication
+      const response = await this.anthropic.messages.create({
+        model: 'claude-3-5-haiku-20241022	',
+        max_tokens: 10,
+        messages: [{ role: 'user', content: 'test' }]
+      });
+      
+      console.log('✅ Anthropic API connection test successful');
+    } catch (error: any) {
+      console.error('❌ Anthropic API connection test failed:');
+      console.error(`   Status: ${error.status || 'unknown'}`);
+      console.error(`   Error: ${error.message || error}`);
+      
+      if (error.status === 401) {
+        console.error('   🔑 Authentication failed - OAuth token may be invalid');
+      } else if (error.status === 403) {
+        console.error('   🚫 Permission denied - OAuth token may lack required scopes');
+      } else if (error.status === 429) {
+        console.error('   🕰️ Rate limit exceeded');
+      }
     }
   }
 

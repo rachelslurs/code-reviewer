@@ -59,19 +59,13 @@ make test               # Basic functionality test
 claude setup-token      # Uses your subscription with higher limits
 ```
 
-**Option 2: OAuth Token (Best for CI/CD Environments)**
-```bash
-export CLAUDE_CODE_OAUTH_TOKEN="your-oauth-token"
-```
-> 🎯 **Perfect for GitHub Actions!** OAuth tokens provide secure, stateless authentication for CI/CD pipelines without requiring Claude Code CLI installation.
-
-**Option 3: API Keys (Universal)**
+**Option 2: API Key (Universal - Works Everywhere)**
 ```bash
 export ANTHROPIC_API_KEY="your-claude-key"
 export GEMINI_API_KEY="your-gemini-key"    # Optional for auto-fallback
 ```
 
-**Option 4: Interactive Setup**
+**Option 3: Interactive Setup**
 ```bash
 ./bin/code-review --setup    # Configure any method interactively
 ```
@@ -81,10 +75,9 @@ export GEMINI_API_KEY="your-gemini-key"    # Optional for auto-fallback
 | Method | Local Dev | CI/CD | Rate Limits | Setup Complexity |
 |--------|-----------|-------|-------------|------------------|
 | **Claude Code** | ✅ Perfect | ❌ Complex | 🚀 Highest | 🟢 Simple |
-| **OAuth Token** | ✅ Good | ✅ Perfect | 🚀 High | 🟡 Medium |
-| **API Key** | ✅ Good | ✅ Good | ⚠️ Standard | 🟢 Simple |
+| **API Key** | ✅ Perfect | ✅ Perfect | ⚠️ Standard | 🟢 Simple |
 
-> **💡 Recommendation**: Use Claude Code for local development, OAuth tokens for CI/CD!
+> **💡 Recommendation**: Use Claude Code for local development, API keys for CI/CD!
 
 ## 📖 Usage Guide
 
@@ -441,13 +434,13 @@ code-review --ci-mode --auto-fallback --template combined --output json ./src
 
 ## 🚀 CI/CD Integration
 
-### GitHub Actions Setup (OAuth Token Method)
+### GitHub Actions Setup (API Key Method)
 
-**Step 1: Add OAuth Token to Repository Secrets**
+**Step 1: Add API Key to Repository Secrets**
 1. Go to your repository → Settings → Secrets and variables → Actions
 2. Click "New repository secret"
-3. Name: `CLAUDE_CODE_OAUTH_TOKEN`
-4. Value: Your Claude Code OAuth token
+3. Name: `ANTHROPIC_API_KEY`
+4. Value: Your Anthropic API key (get from https://console.anthropic.com/settings/keys)
 5. Optional: Add `GEMINI_API_KEY` for fallback support
 
 **Step 2: Use the Provided Workflow**
@@ -456,7 +449,7 @@ Our repository includes a complete GitHub Actions workflow at `.github/workflows
 
 ```yaml
 # Key features of our workflow:
-- ✅ OAuth token authentication  
+- ✅ API key authentication (universal)
 - ✅ Automatic PR comments with review results
 - ✅ Incremental reviews (only changed files)
 - ✅ Security-focused reviews for sensitive files
@@ -472,29 +465,29 @@ Our repository includes a complete GitHub Actions workflow at `.github/workflows
 ### CI/CD Authentication Options
 
 | Environment | Recommended Method | Setup Instructions |
-|-------------|-------------------|--------------------|
-| **GitHub Actions** | OAuth Token | Add `CLAUDE_CODE_OAUTH_TOKEN` to secrets |
-| **GitLab CI** | OAuth Token | Add to CI/CD variables |
+|-------------|--------------------|--------------------|  
+| **GitHub Actions** | API Key | Add `ANTHROPIC_API_KEY` to secrets |
+| **GitLab CI** | API Key | Add to CI/CD variables |
 | **Jenkins** | API Key | Set `ANTHROPIC_API_KEY` environment variable |
-| **Azure DevOps** | OAuth Token | Add to pipeline variables |
+| **Azure DevOps** | API Key | Add to pipeline variables |
 
 ### Example CI/CD Command
 
 ```bash
-# Typical CI/CD usage with OAuth token
-CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }} \
+# Typical CI/CD usage with API key
+ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }} \
 code-review \
-  --template combined \
-  --incremental \
-  --ci-mode \
-  --output json \
-  --auto-fallback \
-  .
+--template combined \
+--incremental \
+--ci-mode \
+--output json \
+--auto-fallback \
+.
 ```
 
 ### CI/CD Benefits
 
-- **🔐 Secure**: OAuth tokens provide secure, stateless authentication
+- **🔐 Secure**: API keys provide reliable authentication
 - **⚡ Fast**: Incremental reviews only check changed files
 - **📊 Detailed**: JSON output for integration with other tools
 - **🎯 Smart**: Auto-fallback between Claude and Gemini models

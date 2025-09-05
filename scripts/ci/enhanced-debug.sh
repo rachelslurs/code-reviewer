@@ -23,10 +23,11 @@ fi
 
 echo ""
 echo "🔑 Authentication Check:"
-if [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
-    echo "✅ CLAUDE_CODE_OAUTH_TOKEN is set (length: ${#CLAUDE_CODE_OAUTH_TOKEN} chars)"
-elif [ -n "$ANTHROPIC_API_KEY" ]; then
+if [ -n "$ANTHROPIC_API_KEY" ]; then
     echo "✅ ANTHROPIC_API_KEY is set (length: ${#ANTHROPIC_API_KEY} chars)"
+elif [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
+    echo "⚠️ CLAUDE_CODE_OAUTH_TOKEN is set but OAuth is not supported by Anthropic API"
+    echo "   Please use ANTHROPIC_API_KEY instead"
 else
     echo "❌ No authentication environment variables found"
 fi

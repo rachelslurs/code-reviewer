@@ -72,19 +72,19 @@ jobs:
           
       - name: 'Configure Authentication'
         env:
-          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}  # Optional fallback
         run: |
           echo "🔍 Checking authentication..."
           
-          # Verify OAuth token is available
-          if [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
-            echo "❌ CLAUDE_CODE_OAUTH_TOKEN secret not configured"
-            echo "Please add your Claude OAuth token to repository secrets"
+          # Verify API key is available
+          if [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "❌ ANTHROPIC_API_KEY secret not configured"
+            echo "Please add your Anthropic API key to repository secrets"
             exit 1
           fi
           
-          echo "✅ Claude OAuth token configured"
+          echo "✅ Anthropic API key configured"
           
           # Show config (without revealing secrets)
           ./bin/code-review --config
@@ -92,7 +92,7 @@ jobs:
       - name: 'Run Incremental Code Review'
         if: github.event_name == 'pull_request'
         env:
-          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
           echo "🔍 Running incremental code review for PR..."
@@ -107,7 +107,7 @@ jobs:
       - name: 'Run Full Code Review'
         if: github.event_name == 'push'
         env:
-          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
           echo "🔍 Running full code review for push to ${{ github.ref_name }}..."
@@ -257,7 +257,7 @@ jobs:
           
       - name: 'Run Security Review'
         env:
-          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           echo "🔐 Running security-focused review..."
           
