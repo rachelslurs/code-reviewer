@@ -2,7 +2,7 @@
   "lockfileVersion": 1,
   "workspaces": {
     "": {
-      "name": "code-review-agent",
+      "name": "code-reviewer",
       "dependencies": {
         "@anthropic-ai/sdk": "^0.61.0",
         "@google/generative-ai": "^0.21.0",

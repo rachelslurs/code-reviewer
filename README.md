@@ -1,4 +1,4 @@
-# Code Review Agent
+# Code Reviewer
 
 An AI-powered code review CLI tool that provides intelligent, multi-model code analysis with advanced features like caching, multi-model support, and CI/CD integration.
 
@@ -52,7 +52,7 @@ An AI-powered code review CLI tool that provides intelligent, multi-model code a
 1. **Clone and install:**
    ```bash
    git clone <your-repo-url>
-   cd code-review-agent
+   cd code-reviewer
    bun install && bun run build
    ```
 
@@ -181,7 +181,6 @@ code-review --template combined --output markdown --output-file report.md ./src
 | `--yes`, `-y` | Skip confirmation prompts | `--yes` |
 | `--allow-dirty` | Allow uncommitted changes | `--allow-dirty` |
 | `--status` | Show model status and rate limits | `--status` |
-| `--model-status` | Alias for --status | `--model-status` |
 
 ## 📊 Model Status Monitoring
 

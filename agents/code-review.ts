@@ -45,7 +45,7 @@ async function main() {
   }
   
   // Handle model status command
-  if (args.includes('--model-status') || args.includes('--status')) {
+  if (args.includes('--status')) {
     await showModelStatus();
     process.exit(0);
   }
@@ -536,7 +536,6 @@ OPTIONS:
   --config            Show current configuration
   --setup             Run interactive setup wizard
   --status            Show model status and rate limits
-  --model-status      Alias for --status
   --help, -h          Show this help message
 
 EXAMPLES:
@@ -548,16 +547,7 @@ EXAMPLES:
 
 CONFIGURATION:
   Configuration is stored in .codereview.json in your project root.
-  Use --setup to create or modify configuration interactively.
-
-AUTHENTICATION:
-  Claude Code (recommended):
-    claude setup-token                # Authenticate with your subscription
-  
-  Direct API (alternative):
-    ANTHROPIC_API_KEY              # Environment variable
-    code-review --setup            # Interactive configuration
-`);
+  Use --setup to create or modify configuration interactively.`);
 }
 
 function showConfig(): void {
