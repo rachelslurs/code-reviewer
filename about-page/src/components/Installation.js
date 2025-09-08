@@ -67,7 +67,7 @@ const Installation = () => {
   ];
 
   return (
-    <section id="installation" className="py-16 bg-gray-50">
+    <section id="installation" className="py-16 bg-gray-200">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Section Header */}
         <div className="text-center mb-12">
@@ -80,7 +80,7 @@ const Installation = () => {
         <div className="mb-8">
           <button
             onClick={() => setPrerequisitesOpen(!prerequisitesOpen)}
-            className="w-full text-left flex items-center justify-between hover:bg-gray-50 transition-colors duration-200 px-2 py-2 rounded"
+            className="w-full text-left flex items-center justify-between transition-colors duration-200 px-2 py-2 rounded"
           >
             <h3 className="text-lg font-medium text-gray-700">
               Prerequisites
@@ -102,7 +102,7 @@ const Installation = () => {
               <ul className="space-y-2">
                 {requirements.map((req, index) => (
                   <li key={index} className="flex items-center space-x-3">
-                    <svg className="w-5 h-5 text-green-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                    <svg className="w-5 h-5 text-primary-700 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
                       <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
                     </svg>
                     <a
@@ -110,7 +110,7 @@ const Installation = () => {
                       target="_blank"
                       rel="noopener noreferrer"
                       title={`${req.name} - ${req.description}`}
-                      className="text-primary-600 hover:text-primary-700 font-medium"
+                      className="text-primary-700 hover:text-primary-900 font-medium"
                     >
                       {req.name}
                     </a>
@@ -147,46 +147,6 @@ const Installation = () => {
               </div>
             </div>
           ))}
-        </div>
-
-        {/* Authentication Options */}
-        <div className="mt-16 bg-gradient-to-r from-primary-600 to-accent-600 rounded-2xl p-8 text-white">
-          <div className="text-center mb-8">
-            <h3 className="text-2xl font-bold mb-4">
-              Authentication Options
-            </h3>
-            <p className="text-primary-100 max-w-2xl mx-auto">
-              Choose the authentication method that works best for your setup
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="bg-white/10 backdrop-blur-sm rounded-lg p-6">
-              <h4 className="font-bold text-lg mb-3">💰 Claude Code</h4>
-              <p className="text-primary-100 mb-4">
-                Uses your existing Claude subscription - no additional API costs
-              </p>
-              <div className="bg-black/20 rounded p-3">
-                <code className="text-green-400 text-sm">
-                  claude setup-token<br />
-                  export GEMINI_API_KEY="your-key"
-                </code>
-              </div>
-            </div>
-
-            <div className="bg-white/10 backdrop-blur-sm rounded-lg p-6">
-              <h4 className="font-bold text-lg mb-3">🔒 API Keys</h4>
-              <p className="text-primary-100 mb-4">
-                Direct API access with usage-based pricing
-              </p>
-              <div className="bg-black/20 rounded p-3">
-                <code className="text-green-400 text-sm">
-                  export ANTHROPIC_API_KEY="your-key"<br />
-                  export GEMINI_API_KEY="your-key"
-                </code>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
     </section>
