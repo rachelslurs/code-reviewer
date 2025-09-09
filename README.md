@@ -1,6 +1,6 @@
 # Code Reviewer
 
-An AI-powered code review CLI tool that provides intelligent, multi-model code analysis with advanced features like caching, multi-model support, and CI/CD integration.
+An AI-powered code review CLI tool that provides code analysis with advanced features like caching and multi-model support.
 
 ## ✨ Features
 
@@ -32,7 +32,6 @@ An AI-powered code review CLI tool that provides intelligent, multi-model code a
 - **Multiple Output Formats**: Terminal, Markdown, JSON, and HTML reports
 - **Progress Streaming**: Real-time results as each file completes
 - **Model Status Monitoring**: Real-time tracking of API usage, rate limits, and costs
-- **CI/CD Integration**: GitHub Actions workflow with PR comments
 
 ### 🔧 **Advanced Features**
 - **Git Integration**: Smart git status checking and branch-aware reviews
@@ -121,9 +120,6 @@ code-review --compare-models --template security file.ts
 
 # Force specific model
 code-review --multi-model --model gemini-flash ./src
-
-# CI/CD optimized mode
-code-review --multi-model --ci-mode --template combined ./src
 ```
 
 ### Advanced Workflows
@@ -173,14 +169,6 @@ code-review --template combined --output markdown --output-file report.md ./src
 | `--no-cache` | Disable caching | `--no-cache` |
 | `--clear-cache` | Clear review cache | `--clear-cache` |
 
-### CI/CD & Automation
-
-| Option | Description | Example |
-|--------|-------------|---------|
-| `--ci-mode` | CI-optimized mode (no prompts, exit codes) | `--ci-mode` |
-| `--yes`, `-y` | Skip confirmation prompts | `--yes` |
-| `--allow-dirty` | Allow uncommitted changes | `--allow-dirty` |
-| `--status` | Show model status and rate limits | `--status` |
 
 ## 📊 Model Status Monitoring
 
@@ -472,33 +460,6 @@ code-review --template combined ./src
 | **Claude Haiku** | Quick feedback, Simple reviews | Fast | $0.25/$1.25 per 1M tokens | 200K input |  
 | **Gemini Pro** | Detailed analysis, Large files | Medium | Free tier (limited) | 2M input |
 | **Gemini Flash** | Fast reviews, Development workflow | Fast | Free tier (generous) | 1M input |
-
-## 🔄 CI/CD Integration
-
-### GitHub Actions Setup
-
-The tool includes a complete GitHub Actions workflow for automated PR reviews:
-
-1. **Add repository secrets:**
-   - `ANTHROPIC_API_KEY` (required)
-   - `GEMINI_API_KEY` (optional but recommended)
-
-2. **The workflow automatically:**
-   - Reviews only changed files in PRs
-   - Posts results as PR comments
-   - Sets build status (pass/fail/warning)
-   - Generates downloadable reports
-
-3. **Example CI usage:**
-   ```bash
-   code-review --ci-mode --template combined --output json --allow-dirty --yes ./src
-   ```
-
-4. **Exit codes:**
-   - `0`: No critical issues (build passes)
-   - `1`: Critical issues found (build fails)
-
-See `CI_CD_GUIDE.md` for complete setup instructions.
 
 ## 🧠 Smart Features
 
