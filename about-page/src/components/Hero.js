@@ -8,24 +8,18 @@ const Hero = () => {
       
       <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24 lg:py-32">
         <div className="text-center">
-          {/* Badge */}
-          <div className="inline-flex items-center px-4 py-2 rounded-full bg-white/10 backdrop-blur-sm border border-white/20 text-white text-sm font-medium mb-8 animate-fade-in">
-            <span className="w-2 h-2 bg-green-400 rounded-full mr-2 animate-pulse"></span>
-            AI-Powered Code Review Tool
-          </div>
-          
           {/* Main Heading */}
-          <h1 className="text-4xl sm:text-5xl lg:text-7xl font-bold text-white mb-6 animate-slide-up">
+          <h1 className="text-4xl sm:text-5xl lg:text-7xl font-bold text-white mb-6 animate-slide-up overflow-hidden">
             Transform Your
-            <span className="block gradient-text bg-gradient-to-r from-white to-primary-200">
+            <span className="leading-normal block gradient-text bg-gradient-to-r from-white to-primary-300">
               Code Quality
             </span>
           </h1>
           
           {/* Subtitle */}
           <p className="text-xl sm:text-2xl text-primary-100 max-w-3xl mx-auto mb-12 leading-relaxed animate-slide-up">
-            Intelligent, multi-model code analysis with smart caching, CI/CD integration, 
-            and comprehensive review templates. Built for modern development workflows.
+            Multi-model code analysis with smart caching
+            and comprehensive review templates.
           </p>
           
           {/* CTA Buttons */}

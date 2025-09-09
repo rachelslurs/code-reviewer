@@ -112,7 +112,7 @@ const Demo = () => {
             <span className="gradient-text"> Action</span>
           </h2>
           <p className="text-xl text-gray-600 max-w-3xl mx-auto">
-            Explore different usage patterns and see real output examples 
+            See output examples 
             from the Code Reviewer.
           </p>
         </div>

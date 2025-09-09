@@ -43,12 +43,9 @@ const Features = () => {
         {/* Section Header */}
         <div className="text-center mb-12">
           <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold text-gray-900 mb-4">
-            Powerful Features for
-            <span className="gradient-text"> Modern Development</span>
+            Code Reviewer
+            <span className="gradient-text"> Features</span>
           </h2>
-          <p className="text-lg text-gray-600 max-w-2xl mx-auto">
-            AI-powered analysis with smart caching, CI/CD integration, and professional workflows.
-          </p>
         </div>
 
         {/* Features Grid */}
@@ -56,10 +53,10 @@ const Features = () => {
           {features.map((feature, index) => (
             <div
               key={index}
-              className="group bg-accent-200 rounded-2xl p-8 card-hover border border-gray-100"
+              className="group bg-gradient-to-r from-primary-50 to-secondary-50  rounded-2xl p-8 card-hover border border-gray-100"
             >
               <div className="flex items-start space-x-4">
-                <div className="feature-icon bg-black/10 text-accent-600 group-hover:bg-accent-300 transition-colors duration-300">
+                <div className="feature-icon bg-black/10 text-secondary-600 group-hover:bg-secondary-200 transition-colors duration-300">
                   {feature.icon}
                 </div>
                 <div className="flex-1">

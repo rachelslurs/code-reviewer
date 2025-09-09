@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 
 const Installation = () => {
-  const [activeTab, setActiveTab] = useState('quick');
   const [prerequisitesOpen, setPrerequisitesOpen] = useState(false);
 
   const installationSteps = {
