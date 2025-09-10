@@ -66,7 +66,7 @@ const Installation = () => {
   ];
 
   return (
-    <section id="installation" className="py-16 bg-gray-200">
+    <section id="installation" className="py-24 bg-gray-200">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Section Header */}
         <div className="text-center mb-12">
@@ -79,7 +79,7 @@ const Installation = () => {
         <div className="mb-8">
           <button
             onClick={() => setPrerequisitesOpen(!prerequisitesOpen)}
-            className="w-full text-left flex items-center justify-between transition-colors duration-200 px-2 py-2 rounded"
+            className="w-full text-left flex items-center justify-between transition-colors duration-200 px-2 py-2 rounded font-bungee"
           >
             <h3 className="text-lg font-medium text-gray-700">
               Prerequisites
@@ -127,11 +127,11 @@ const Installation = () => {
               <div className="flex items-start space-x-6">
                 <div className="flex-shrink-0">
                   <div className="w-12 h-12 bg-primary-100 rounded-full flex items-center justify-center">
-                    <span className="text-primary-600 font-bold text-lg">{step.step}</span>
+                    <span className="text-primary-600 text-lg font-bungee">{step.step}</span>
                   </div>
                 </div>
                 <div className="flex-1">
-                  <h3 className="text-xl font-bold text-gray-900 mb-2">
+                  <h3 className="text-lg font-bungee tracking-tight text-gray-900 mb-2">
                     {step.title}
                   </h3>
                   <p className="text-gray-600 mb-4">

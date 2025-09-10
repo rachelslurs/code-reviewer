@@ -103,19 +103,8 @@ const Demo = () => {
   ];
 
   return (
-    <section id="demo" className="py-24 bg-white">
+    <section id="demo" className="pb-24">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        {/* Section Header */}
-        <div className="text-center mb-16">
-          <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold text-gray-900 mb-6">
-            See It In
-            <span className="gradient-text"> Action</span>
-          </h2>
-          <p className="text-xl text-gray-600 max-w-3xl mx-auto">
-            See output examples 
-            from the Code Reviewer.
-          </p>
-        </div>
 
         {/* Terminal with Tabs */}
         <div className="bg-gray-900 rounded-2xl overflow-hidden shadow-2xl">
@@ -155,10 +144,10 @@ const Demo = () => {
           
           <div className="p-6">
             <div className="mb-6">
-              <h3 className="text-lg font-semibold text-white mb-2">
+              <h3 className="text-lg font-bungee tracking-tight text-white/90 mb-2">
                 {demos.find(d => d.id === activeDemo)?.title}
               </h3>
-              <p className="text-gray-400 mb-4">
+              <p className="text-gray-300 mb-4">
                 {demos.find(d => d.id === activeDemo)?.description}
               </p>
               <div className="bg-gray-800 rounded-lg p-4">
@@ -168,7 +157,7 @@ const Demo = () => {
               </div>
             </div>
             
-            <div className="bg-black rounded-lg p-4 overflow-x-auto">
+            <div className="bg-black rounded-lg p-4 overflow-x-auto h-96 overflow-y-auto">
               <pre className="text-green-400 font-mono text-sm whitespace-pre-wrap">
                 {demos.find(d => d.id === activeDemo)?.output}
               </pre>

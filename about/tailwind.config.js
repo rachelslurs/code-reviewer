@@ -18,7 +18,7 @@ module.exports = {
           '800': '#186572',
           '900': '#185361',
           '950': '#0a3742',
-      },
+        },
       secondary: {
           50: '#effaf5',
           100: '#d9f2e6',
@@ -48,6 +48,8 @@ module.exports = {
       },
       fontFamily: {
         'mono': ['JetBrains Mono', 'Fira Code', 'Monaco', 'Consolas', 'monospace'],
+        'bungee': ['Bungee', 'sans-serif'],
+        'sans': ['DM Sans', 'sans-serif'],
       },
       animation: {
         'fade-in': 'fadeIn 0.5s ease-in-out',
