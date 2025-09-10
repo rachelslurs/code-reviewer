@@ -50,7 +50,7 @@ An AI-powered code review CLI tool that provides code analysis with advanced fea
 
 1. **Clone and install:**
    ```bash
-   git clone <your-repo-url>
+   git clone git@github.com:rachelslurs/code-reviewer.git
    cd code-reviewer
    bun install && bun run build
    ```

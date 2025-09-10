@@ -9,7 +9,7 @@ const Installation = () => {
         step: 1,
         title: 'Clone & Install',
         description: 'Get the repository and install dependencies',
-        command: 'git clone <your-repo-url>\ncd code-reviewer\nbun install && bun run build'
+        command: 'git clone git@github.com:rachelslurs/code-reviewer.git\ncd code-reviewer\nbun install && bun run build'
       },
       {
         step: 2,

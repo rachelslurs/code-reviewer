@@ -11,10 +11,10 @@ const Footer = () => {
             © {new Date().getFullYear()} Code Reviewer. Built by <a href="https://rachel.fyi" className=' hover:text-white transition-colors duration-300'>Rachel</a>.
           </div>
           <div className="flex space-x-6 text-sm">
-            <a href="https://github.com/rachel/code-reviewer/blob/main/LICENSE" target="_blank" rel="noopener noreferrer" className="text-gray-400 hover:text-white transition-colors duration-300">
+            <a href="https://github.com/rachelslurs/code-reviewer/blob/main/LICENSE" target="_blank" rel="noopener noreferrer" className="text-gray-400 hover:text-white transition-colors duration-300">
               MIT License
             </a>
-            <a href="https://github.com/rachel/code-reviewer" target="_blank" rel="noopener noreferrer" className="text-gray-400 hover:text-white transition-colors duration-300">
+            <a href="https://github.com/rachelslurs/code-reviewer" target="_blank" rel="noopener noreferrer" className="text-gray-400 hover:text-white transition-colors duration-300">
               GitHub
             </a>
           </div>
