@@ -1,12 +1,13 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { execSync } from 'child_process';
-import { writeFileSync, unlinkSync } from 'fs';
+
 import { FileInfo } from './file-scanner.js';
 import { TokenTracker } from './token-tracker.js';
 import { ReviewTemplate } from '../templates/quality.js';
 import { CacheManager } from '../utils/cache-manager.js';
 import { ModelStatusChecker } from '../utils/model-status-checker.js';
 import { resolveMaxTokens } from '../utils/token-estimator.js';
+import { reviewViaClaudeCli, probeClaudeCodeAuth } from './claude-cli.js';
 import {
   anthropicInputSchema,
   normalizeReviewResponse,
@@ -70,31 +71,7 @@ export class CodeReviewer {
   }
 
   private checkClaudeCodeAuth(): boolean {
-    try {
-      // Test authentication using a simple model alias that should exist
-      const testResult = execSync('echo "auth test" | claude --print --model sonnet', {
-        encoding: 'utf8',
-        stdio: 'pipe',
-        timeout: 15000
-      });
-      
-      const lowerResult = testResult.toLowerCase();
-      const hasAuthError = lowerResult.includes('authentication') ||
-                          lowerResult.includes('unauthorized') ||
-                          lowerResult.includes('not authenticated') ||
-                          lowerResult.includes('setup-token');
-      
-      // Max tokens error means auth worked
-      const hasMaxTokensError = lowerResult.includes('max_tokens');
-      
-      return !hasAuthError || hasMaxTokensError;
-    } catch (error: any) {
-      // Check if the error is just max_tokens (which means auth actually works)
-      if (error.stdout && error.stdout.toString().toLowerCase().includes('max_tokens')) {
-        return true;
-      }
-      return false;
-    }
+    return probeClaudeCodeAuth();
   }
 
   async reviewFile(
@@ -117,52 +94,47 @@ export class CodeReviewer {
     template: ReviewTemplate
   ): Promise<ReviewResult> {
     // Create a temporary prompt file
-    const promptPath = `/tmp/review-prompt-${Date.now()}.txt`;
     const userPrompt = this.buildUserPrompt(file);
     const fullPrompt = `${template.systemPrompt}\n\n${userPrompt}`;
 
     try {
-      // Write prompt to file
-      writeFileSync(promptPath, fullPrompt);
+      // Subscription path: --json-schema reaches the same schema as forced tool
+      // use, so this returns structured findings rather than free text.
+      const cli = reviewViaClaudeCli(
+        `${fullPrompt}\n\n${STRUCTURED_OUTPUT_INSTRUCTION}`,
+        'sonnet',
+        120000
+      );
 
-      // Use Claude Code to get response (no max-tokens since it's not supported)
-      const result = execSync(`cat "${promptPath}" | claude --print --model sonnet`, {
-        encoding: 'utf8',
-        maxBuffer: 1024 * 1024 * 10, // 10MB buffer
-        stdio: 'pipe',
-        timeout: 120000 // 2 minutes timeout (was 60 seconds)
-      });
+      // The CLI reports real usage, so these are no longer length/4 guesses.
+      const tokensUsed = cli.tokensUsed;
+      this.tokenTracker.recordUsage(tokensUsed.input, tokensUsed.output);
+      this.statusChecker.recordRequest('claude-sonnet', tokensUsed.input + tokensUsed.output);
 
-      // Clean up temp file
-      unlinkSync(promptPath);
+      if (cli.costUsd > 0) {
+        console.log(`   💳 Subscription usage: $${cli.costUsd.toFixed(4)} equivalent`);
+      }
 
-      // Estimate token usage (since Claude Code doesn't return exact counts)
-      const estimatedInputTokens = Math.ceil(fullPrompt.length / 4);
-      const estimatedOutputTokens = Math.ceil(result.length / 4);
+      const feedback = cli.review
+        ? renderStructuredReviewAsText(cli.review)
+        : (cli.error ?? 'Claude CLI returned no review.');
 
-      this.tokenTracker.recordUsage(estimatedInputTokens, estimatedOutputTokens);
-      
-      // Record usage for status tracking
-      this.statusChecker.recordRequest('claude-sonnet', estimatedInputTokens + estimatedOutputTokens);
-
-      const hasIssues = this.detectIssues(result);
-
-      console.log(`✅ Review complete (estimated ${estimatedInputTokens + estimatedOutputTokens} tokens)`);
+      console.log(
+        cli.review
+          ? `✅ Review complete (${tokensUsed.input + tokensUsed.output} tokens)`
+          : `⚠️  Review failed: ${cli.error}`
+      );
 
       return {
         filePath: file.relativePath,
         template: template.name,
-        feedback: result.trim(),
-        tokensUsed: {
-          input: estimatedInputTokens,
-          output: estimatedOutputTokens
-        },
+        feedback,
+        tokensUsed,
         timestamp: new Date(),
-        hasIssues,
+        hasIssues: this.resolveVerdict(cli.review, cli.error, feedback),
         authMethod: 'claude-code',
-        // The CLI exposes no tool-use surface, so this path is text-only by
-        // transport. Absent `error` keeps it a success, not a failure.
-        review: null
+        review: cli.review,
+        ...(cli.error ? { error: cli.error } : {})
       };
 
     } catch (error) {

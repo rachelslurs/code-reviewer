@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { GoogleGenerativeAI, type ResponseSchema } from '@google/generative-ai';
 import { TokenEstimator, resolveMaxTokens } from '../utils/token-estimator.js';
+import { reviewViaClaudeCli } from './claude-cli.js';
 import {
   anthropicInputSchema,
   geminiResponseSchema,
@@ -309,44 +310,30 @@ export class MultiModelProvider {
    */
   private async callClaude(model: ModelProvider, request: ReviewRequest, startTime: number, modelKey: string): Promise<ModelResponse> {
     if (this.useClaudeCode) {
-      // Use Claude Code CLI with proper syntax
-      const { execSync } = require('child_process');
-      const fs = require('fs');
-      const path = require('path');
-      const os = require('os');
+      // Subscription path. `claude --print --json-schema` reaches the same schema
+      // as forced tool use, so this is structured too, at roughly six times the
+      // usage budget of a direct API call.
+      const prompt = `${request.systemPrompt}\n\n${STRUCTURED_OUTPUT_INSTRUCTION}\n\nFile: ${request.filename}\n\nCode:\n${request.code}`;
+      const cliModel = modelKey === 'claude-haiku' ? 'haiku' : 'sonnet';
+      const cli = reviewViaClaudeCli(prompt, cliModel, this.config.timeout);
 
-      // Create temporary file for the prompt
-      const tempDir = os.tmpdir();
-      const promptFile = path.join(tempDir, `prompt-${Date.now()}.txt`);
+      const base = {
+        model: model.model,
+        provider: 'claude',
+        tokensUsed: cli.tokensUsed,
+        responseTime: Date.now() - startTime
+      };
 
-      try {
-        const fullPrompt = `${request.systemPrompt}\n\nFile: ${request.filename}\n\nCode:\n${request.code}`;
-        fs.writeFileSync(promptFile, fullPrompt);
-
-        // Use claude chat with stdin instead of --file
-        const result = execSync(
-          `claude chat --model ${model.model} < "${promptFile}"`,
-          { encoding: 'utf8', timeout: this.config.timeout, shell: true }
-        );
-
-        // Clean up
-        fs.unlinkSync(promptFile);
-
-        return {
-          content: result.trim(),
-          model: model.model,
-          provider: 'claude',
-          tokensUsed: { input: 0, output: 0 }, // Claude Code doesn't report tokens
-          responseTime: Date.now() - startTime,
-          // The CLI exposes no tool-use surface, so this path is text-only by
-          // transport. Absent `error` keeps it a success, not a failure.
-          review: null
-        };
-      } catch (error) {
-        // Clean up on error
-        try { fs.unlinkSync(promptFile); } catch {}
-        throw error;
+      if (cli.costUsd > 0) {
+        console.log(`   💳 Subscription usage: $${cli.costUsd.toFixed(4)} equivalent`);
       }
+
+      if (!cli.review) {
+        const error = cli.error ?? 'Claude CLI returned no review.';
+        return { ...base, content: error, review: null, error };
+      }
+
+      return { ...base, content: renderStructuredReviewAsText(cli.review), review: cli.review };
     } else {
       // Use Anthropic API
       if (!this.anthropic) {
