@@ -163,8 +163,11 @@ export class MultiModelReviewer {
       this.statusChecker.recordRequest(modelKey, result.tokensUsed.input + result.tokensUsed.output);
     });
 
-    // Use the primary model's result as the main feedback, but include comparison
-    const primaryResult = results[0];
+    // Prefer a model that actually produced a review. compareModels only drops
+    // models that throw, so results[0] can carry an error while later entries hold
+    // valid reviews; promoting it unconditionally would discard them and mark the
+    // whole file failed.
+    const primaryResult = results.find(r => r.review !== null) ?? results[0];
     const comparisonSummary = this.provider.generateComparisonSummary(results);
     
     // primaryResult.content is rendered from its structured review when there is

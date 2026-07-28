@@ -1,6 +1,6 @@
 import { watch } from 'fs';
 import { join, extname } from 'path';
-import { CodeReviewer } from '../core/reviewer.js';
+import { CodeReviewer, formatIssueStatus } from '../core/reviewer.js';
 import { FileScanner } from '../core/file-scanner.js';
 import { ReviewTemplate } from '../templates/quality.js';
 import { CodeReviewConfig } from './config.js';
@@ -202,7 +202,7 @@ export class FileWatcher {
 
   private displayQuickResult(result: any): void {
     const timestamp = new Date().toLocaleTimeString();
-    const status = result.hasIssues ? '🔍 Issues found' : '✅ Clean';
+    const status = formatIssueStatus(result.hasIssues);
     
     console.log(`\n${'='.repeat(60)}`);
     console.log(`📋 Quick Review [${timestamp}]`);
@@ -211,7 +211,9 @@ export class FileWatcher {
     console.log(`Status: ${status}`);
     console.log(`Tokens: ${(result.tokensUsed.input + result.tokensUsed.output).toLocaleString()}`);
     
-    if (result.hasIssues) {
+    // Printed on failure too. Gating on truthiness alone would show the status
+    // line and suppress the body, which is where the failure explanation lives.
+    if (result.hasIssues !== false) {
       console.log(`\n${'-'.repeat(50)}`);
       // Show just the first few lines of feedback for quick viewing
       const lines = result.feedback.split('\n').slice(0, 10);

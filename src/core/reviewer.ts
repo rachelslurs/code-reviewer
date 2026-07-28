@@ -57,8 +57,10 @@ export class CodeReviewer {
     this.cacheManager = enableCache ? new CacheManager() : null as any;
     this.statusChecker = new ModelStatusChecker();
     
-    // Use the forceClaudeCode flag if provided, otherwise check authentication
-    this.useClaudeCode = forceClaudeCode || this.checkClaudeCodeAuth();
+    // An explicit false means the caller already decided against the CLI path, so
+    // re-probing here would override it. Callers pass the result of their own
+    // probe, so the undefined case is the only one that needs to ask.
+    this.useClaudeCode = forceClaudeCode ?? this.checkClaudeCodeAuth();
     
     if (this.useClaudeCode) {
       console.log('✅ Using Claude Code authentication');
@@ -280,8 +282,11 @@ export class CodeReviewer {
         try {
           const result = await this.reviewFile(file, template);
           
-          // Cache the result
-          if (this.cacheManager) {
+          // Only cache a review that reached a verdict. The cache keys on file
+          // content, so storing a failure would replay it on every later run until
+          // the file changes or the 7-day prune, turning one transient timeout into
+          // a permanently unreviewed file.
+          if (this.cacheManager && result.hasIssues !== null) {
             this.cacheManager.cacheResult(file, template.name, result);
           }
           

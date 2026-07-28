@@ -22,6 +22,13 @@ import {
 export interface ClaudeCliResult {
   review: StructuredReview | null;
   error?: string;
+  /**
+   * True when the CLI could not be reached or exited non-zero, as opposed to
+   * returning a response that failed validation. Callers throw on this so the
+   * model-fallback chain still fires; a schema violation is not retryable and is
+   * reported instead.
+   */
+  transportFailed?: boolean;
   /** Subscription budget consumed, in API-equivalent dollars. */
   costUsd: number;
   tokensUsed: { input: number; output: number };
@@ -33,7 +40,12 @@ interface CliEnvelope {
   result?: unknown;
   structured_output?: unknown;
   total_cost_usd?: number;
-  usage?: { input_tokens?: number; output_tokens?: number };
+  usage?: {
+    input_tokens?: number;
+    output_tokens?: number;
+    cache_read_input_tokens?: number;
+    cache_creation_input_tokens?: number;
+  };
 }
 
 /** Two turns is the documented minimum: the second one emits the structured output. */
@@ -86,10 +98,10 @@ export function reviewViaClaudeCli(
   // execSync's `input` option makes the CLI exit with is_error and
   // duration_api_ms: 0, without attempting a request.
   const promptFile = join(tmpdir(), `code-review-prompt-${Date.now()}.txt`);
-  writeFileSync(promptFile, prompt);
 
   let raw: string;
   try {
+    writeFileSync(promptFile, prompt);
     raw = execSync(
       [
         `cat ${JSON.stringify(promptFile)} | claude --print`,
@@ -108,7 +120,7 @@ export function reviewViaClaudeCli(
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    return { review: null, error: `Claude CLI failed: ${message}`, costUsd: 0, tokensUsed: empty };
+    return { review: null, error: `Claude CLI failed: ${message}`, transportFailed: true, costUsd: 0, tokensUsed: empty };
   } finally {
     try { unlinkSync(promptFile); } catch { /* best effort */ }
   }
@@ -118,14 +130,21 @@ export function reviewViaClaudeCli(
     return {
       review: null,
       error: 'Claude CLI returned output that is not JSON.',
+      transportFailed: true,
       costUsd: 0,
       tokensUsed: empty,
     };
   }
 
   const costUsd = envelope.total_cost_usd ?? 0;
+  // A --print session reads tens of thousands of cached tokens. Counting only
+  // input_tokens under-reports real usage by orders of magnitude, and that number
+  // feeds the rate-limit gate.
   const tokensUsed = {
-    input: envelope.usage?.input_tokens ?? 0,
+    input:
+      (envelope.usage?.input_tokens ?? 0) +
+      (envelope.usage?.cache_read_input_tokens ?? 0) +
+      (envelope.usage?.cache_creation_input_tokens ?? 0),
     output: envelope.usage?.output_tokens ?? 0,
   };
 
