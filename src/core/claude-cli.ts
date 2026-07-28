@@ -57,15 +57,21 @@ function parseJsonOrNull(text: string): unknown {
  * echoed back as an auth failure.
  */
 export function probeClaudeCodeAuth(): boolean {
+  const promptFile = join(tmpdir(), `code-review-auth-${Date.now()}.txt`);
   try {
+    // Same shell-pipe form as the review call. execSync's `input` option makes the
+    // CLI exit with is_error and duration_api_ms: 0 without attempting a request.
+    writeFileSync(promptFile, 'Reply with exactly: OK');
     const raw = execSync(
-      'claude --print --safe-mode --model haiku --output-format json --max-turns 1',
-      { encoding: 'utf8', stdio: 'pipe', timeout: 30000, input: 'Reply with exactly: OK' },
+      `cat ${JSON.stringify(promptFile)} | claude --print --safe-mode --model haiku --output-format json`,
+      { encoding: 'utf8', stdio: 'pipe', timeout: 60000, shell: '/bin/sh' },
     );
     const envelope = parseJsonOrNull(raw) as CliEnvelope | null;
     return envelope !== null && envelope.is_error !== true;
   } catch {
     return false;
+  } finally {
+    try { unlinkSync(promptFile); } catch { /* best effort */ }
   }
 }
 
