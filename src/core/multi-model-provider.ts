@@ -104,6 +104,12 @@ export const AVAILABLE_MODELS: Record<string, ModelProvider> = {
 };
 
 export interface ModelConfig {
+  /**
+   * Set only when the user passed --model. A template mapping is a default and an
+   * explicit request is not, so this outranks both templateMappings and the token
+   * estimator's recommendation.
+   */
+  explicitModel?: string;
   primaryModel: string;
   fallbackModels: string[];
   templateMappings: Record<string, string>;
@@ -150,7 +156,12 @@ export class MultiModelProvider {
    */
   getOptimalModel(template: string): string {
     const availableModels = this.getAvailableModels();
-    
+
+    // An explicitly requested model wins over every default below.
+    if (this.config.explicitModel && availableModels.includes(this.config.explicitModel)) {
+      return this.config.explicitModel;
+    }
+
     // Check template-specific mappings first
     if (this.config.templateMappings[template] && availableModels.includes(this.config.templateMappings[template])) {
       return this.config.templateMappings[template];
@@ -187,7 +198,13 @@ export class MultiModelProvider {
    */
   getOptimalModelWithTokens(template: string, estimate: any): string {
     const availableModels = this.getAvailableModels();
-    
+
+    // Checked before the estimator's recommendation, which would otherwise
+    // override an explicit --model just as templateMappings did.
+    if (this.config.explicitModel && availableModels.includes(this.config.explicitModel)) {
+      return this.config.explicitModel;
+    }
+
     // First try the token estimator's recommendation if available
     if (estimate.recommendedModel && availableModels.includes(estimate.recommendedModel)) {
       const fitsCheck = TokenEstimator.fitsWithinLimits(estimate, estimate.recommendedModel);
