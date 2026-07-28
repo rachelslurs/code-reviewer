@@ -596,21 +596,59 @@ USAGE:
 ARGUMENTS:
   path                 Path to file or directory to review (default: current directory)
 
-OPTIONS:
-  --template <name>    Review template to use (default: quality)
-                       Available: quality
-  --yes, -y           Skip confirmation prompt
-  --config            Show current configuration
-  --setup             Run interactive setup wizard
-  --status            Show model status and rate limits
-  --help, -h          Show this help message
+REVIEW:
+  --template <name>       quality, security, performance, typescript, combined, all
+                          (default: quality)
+  --model <key>           claude-sonnet, claude-haiku, gemini-pro, gemini-flash
+  --multi-model           Pick the model per template automatically
+  --compare-models        Run several models on the same file and compare
+  --auto-fallback         Fall through the model chain when one is unavailable
+
+OUTPUT:
+  --output <format>       terminal, markdown, json, html (default: terminal)
+                          Only json exposes findings as data; the rest render prose
+  --output-file <path>    Write the report to a file
+
+SELECTING FILES:
+  --interactive, -i       Choose files from a list
+  --incremental           Only files changed since the last commit
+  --changed-only          Alias for --incremental
+  --compare-with <ref>    Diff against a branch or commit instead
+  --include-untracked     Include untracked files in the diff
+  --include-staged        Include staged files in the diff
+  --watch, -w             Re-review on save
+
+EFFICIENCY:
+  --resume                Continue an interrupted session
+  --no-cache              Skip the cache for this run
+  --clear-cache           Delete the cache and exit
+
+GIT:
+  --allow-dirty           Run with uncommitted changes
+  --no-git-check          Skip git checks entirely
+
+OTHER:
+  --yes, -y               Skip the confirmation prompt
+  --ci-mode               Non-interactive output for CI
+  --config                Show current configuration
+  --setup                 Run the interactive setup wizard
+  --status                Show model status and rate limits
+  --help, -h              Show this message
+
+ENVIRONMENT:
+  ANTHROPIC_API_KEY       Claude API key, if not using the Claude Code CLI
+  GEMINI_API_KEY          Gemini API key
+  CODE_REVIEW_FORCE_API   Use the Anthropic API even when the CLI is authenticated.
+                          Accepts 1, true, yes, on
+  CODE_REVIEW_MAX_TOKENS  Output token cap per request, 1 to 16000
 
 EXAMPLES:
-  code-review                          # Review current directory with default template
-  code-review ./src                    # Review src directory
-  code-review component.tsx            # Review single file
-  code-review --template quality ./src # Review with specific template
-  code-review --setup                  # Configure API key and settings
+  code-review                              # Current directory, default template
+  code-review ./src --template security    # Security review of a directory
+  code-review component.tsx                # Single file
+  code-review --incremental --watch        # Changed files, re-run on save
+  code-review --output json --output-file r.json ./src
+  code-review --setup                      # Configure keys and settings
 
 CONFIGURATION:
   Configuration is stored in .codereview.json in your project root.

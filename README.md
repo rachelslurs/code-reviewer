@@ -169,11 +169,41 @@ code-review --template combined --output markdown --output-file report.md ./src
 | Option | Description | Example |
 |--------|-------------|---------|
 | `--incremental` | Only review changed files | `--incremental` |
+| `--changed-only` | Alias for `--incremental` | `--changed-only` |
 | `--compare-with <ref>` | Compare with branch/commit | `--compare-with main` |
+| `--include-untracked` | Include untracked files in the diff | `--include-untracked` |
+| `--include-staged` | Include staged files in the diff | `--include-staged` |
 | `--resume` | Resume interrupted review session | `--resume` |
 | `--no-cache` | Disable caching | `--no-cache` |
 | `--clear-cache` | Clear review cache | `--clear-cache` |
 
+### Git & Session
+
+| Option | Description | Example |
+|--------|-------------|---------|
+| `--allow-dirty` | Run with uncommitted changes | `--allow-dirty` |
+| `--no-git-check` | Skip git checks entirely | `--no-git-check` |
+| `--yes`, `-y` | Skip the confirmation prompt | `--yes` |
+| `--ci-mode` | Non-interactive output for CI | `--ci-mode` |
+| `--config` | Show current configuration | `--config` |
+| `--setup` | Run the interactive setup wizard | `--setup` |
+| `--status` | Show model status and rate limits | `--status` |
+| `--help`, `-h` | Show usage | `--help` |
+
+### Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `ANTHROPIC_API_KEY` | Claude API key, if not using the Claude Code CLI |
+| `GEMINI_API_KEY` | Gemini API key |
+| `CODE_REVIEW_FORCE_API` | Use the Anthropic API even when the Claude Code CLI is authenticated. Accepts `1`, `true`, `yes`, `on`; anything else warns and is treated as unset |
+| `CODE_REVIEW_MAX_TOKENS` | Output token cap per request, `1` to `16000`. Values outside that range warn and are ignored |
+
+`.env` is gitignored and Bun loads it automatically.
+
+The 16000 ceiling is not a model limit. Every request here is non-streaming, and the
+SDKs hit HTTP timeouts on non-streaming requests well below the models' real output
+caps, so the request is capped rather than the model.
 
 ## 📊 Model Status Monitoring
 
@@ -459,12 +489,24 @@ code-review --template combined ./src
 
 ### Model Comparison
 
-| Model | Best For | Speed | Cost | Token Limits |
-|-------|----------|-------|------|--------------|
-| **Claude Sonnet** | Security, Architecture, Complex analysis | Medium | $3/$15 per 1M tokens | 200K input |
-| **Claude Haiku** | Quick feedback, Simple reviews | Fast | $0.25/$1.25 per 1M tokens | 200K input |  
-| **Gemini Pro** | Detailed analysis, Large files | Medium | Free tier (limited) | 2M input |
-| **Gemini Flash** | Fast reviews, Development workflow | Fast | Free tier (generous) | 1M input |
+`--model` takes the key in the first column, not a model id.
+
+| Key | Model it runs | Best for | Input limit |
+|-----|---------------|----------|-------------|
+| `claude-sonnet` | `claude-sonnet-5` | Security, architecture, complex analysis | 1M |
+| `claude-haiku` | `claude-haiku-4-5` | Quick feedback, simple reviews | 200K |
+| `gemini-pro` | `gemini-flash-latest` | Detailed analysis, large files | 1M |
+| `gemini-flash` | `gemini-flash-lite-latest` | Fast reviews, development workflow | 1M |
+
+The two Gemini keys are named for models they no longer point at: `gemini-pro` runs
+Flash and `gemini-flash` runs Flash Lite. The keys are kept because they appear in
+existing `.codereview.json` files under `fallbackModels` and `templateMappings`.
+
+Rates change, so they are not reproduced here. Anthropic publishes
+[its pricing](https://www.anthropic.com/pricing) and Google publishes
+[its own](https://ai.google.dev/pricing). The figures the tool uses for the cost
+estimate it prints before each request live in `MODEL_LIMITS`
+(`src/utils/token-estimator.ts`), which is the one place to change them.
 
 ## 🧠 Smart Features
 
@@ -617,14 +659,24 @@ because only some of them are worth retrying:
 - **Truncation** (`stop_reason: max_tokens`, or Gemini's `finishReason`) reports the
   token count and tells you to raise `CODE_REVIEW_MAX_TOKENS`. It is not retried on
   another model, because the cap does not change when the model does.
-- **Transport failure** throws, so the existing model-fallback chain still fires.
+- **Transport failure** covers a CLI that could not be reached, exited non-zero, or
+  reported a session error such as a usage limit. What happens next depends on
+  whether the caller has anywhere to retry: multi-model and `--auto-fallback` runs
+  throw, so the chain advances to the next model, while a single-model run reports
+  it, which also keeps the real token count on the result.
 - **Schema violation** keeps the raw payload in the review text. One malformed field
   fails the whole object, and the findings are still worth reading.
 
-The Claude Code CLI path is structured too, at roughly six times the usage of a
-direct API call, since `claude --print` runs a full agentic session. Set
-`CODE_REVIEW_FORCE_API=1` to use the API instead. That is a cost and latency choice,
-not a capability one.
+### Choosing a transport
+
+The Claude Code CLI is structured too, at roughly six times the usage of a direct API
+call, since `claude --print` runs a full agentic session. Both reach the same schema,
+so this is a cost and latency choice.
+
+The CLI is preferred when it answers cleanly. When it answers with an error, a usage
+limit being the common case, it is used only if no `ANTHROPIC_API_KEY` is set. The
+run says which it picked and why. `CODE_REVIEW_FORCE_API=1` takes the API path
+regardless.
 
 ## 🛠 Development
 
@@ -638,6 +690,7 @@ not a capability one.
 │   │   ├── claude-cli.ts       # Claude Code CLI transport
 │   │   ├── file-scanner.ts     # File discovery and filtering
 │   │   ├── reviewer.ts         # Single-model reviewer
+│   │   ├── token-tracker.ts    # Per-session usage and rate limiting
 │   │   ├── multi-model-reviewer.ts  # Multi-model orchestration
 │   │   └── multi-model-provider.ts  # Model abstraction layer
 │   ├── templates/
@@ -653,11 +706,14 @@ not a capability one.
 │       ├── cache-manager.ts    # Review caching system
 │       ├── session-manager.ts  # Resume functionality
 │       ├── output-formatter.ts # Multi-format output
+│       ├── model-status-checker.ts  # --status usage tracking
+│       ├── interactive-selector.ts  # --interactive file picker
 │       └── file-watcher.ts     # Watch mode implementation
-└── .github/
-    └── workflows/
-        └── code-review.yml     # GitHub Actions integration
+└── about/                      # GitHub Pages site (CRA + Tailwind)
 ```
+
+Tests sit beside the code they cover: `src/core/review-schema.test.ts` and
+`src/utils/token-estimator.test.ts`.
 
 ### Scripts
 ```bash

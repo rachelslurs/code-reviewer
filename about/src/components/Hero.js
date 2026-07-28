@@ -52,7 +52,7 @@ const Hero = () => {
           {/* Quiet proof, in the tool's own voice */}
           <div className="flex flex-wrap items-center gap-x-6 gap-y-2 mt-10 font-mono text-xs text-zinc-400">
             <span><span className="text-green-400">&rsaquo;</span> Claude &amp; Gemini</span>
-            <span><span className="text-green-400">&rsaquo;</span> 4 templates</span>
+            <span><span className="text-green-400">&rsaquo;</span> 5 templates</span>
             <span><span className="text-green-400">&rsaquo;</span> JSON output</span>
             <span><span className="text-green-400">&rsaquo;</span> MIT licensed</span>
           </div>
