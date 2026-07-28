@@ -6,18 +6,41 @@ import { TokenTracker } from './token-tracker.js';
 import { ReviewTemplate } from '../templates/quality.js';
 import { CacheManager } from '../utils/cache-manager.js';
 import { ModelStatusChecker } from '../utils/model-status-checker.js';
+import {
+  anthropicInputSchema,
+  normalizeReviewResponse,
+  renderStructuredReviewAsText,
+  SUBMIT_REVIEW_TOOL_NAME,
+  STRUCTURED_OUTPUT_INSTRUCTION,
+  type StructuredReview,
+} from './review-schema.js';
 
 export interface ReviewResult {
   filePath: string;
   template: string;
+  /** Rendered review text. Never empty, so text consumers keep working. */
   feedback: string;
   tokensUsed: {
     input: number;
     output: number;
   };
   timestamp: Date;
-  hasIssues: boolean;
+  /**
+   * null when the review failed and no verdict was reached. Collapsing that into
+   * false would report an unreviewed file as clean.
+   */
+  hasIssues: boolean | null;
   authMethod: 'claude-code' | 'api-key';
+  /** null when the transport produced no structured output, or when it failed. */
+  review: StructuredReview | null;
+  /** Present only on failure. Absent is the success signal, so check truthiness. */
+  error?: string;
+}
+
+/** Formats a three-state verdict for display. */
+export function formatIssueStatus(hasIssues: boolean | null): string {
+  if (hasIssues === null) return '⚠️  Review failed';
+  return hasIssues ? '🔍 Issues found' : '✅ Clean';
 }
 
 export class CodeReviewer {
@@ -135,7 +158,10 @@ export class CodeReviewer {
         },
         timestamp: new Date(),
         hasIssues,
-        authMethod: 'claude-code'
+        authMethod: 'claude-code',
+        // The CLI exposes no tool-use surface, so this path is text-only by
+        // transport. Absent `error` keeps it a success, not a failure.
+        review: null
       };
 
     } catch (error) {
@@ -160,8 +186,14 @@ export class CodeReviewer {
     try {
       const response = await this.anthropic!.messages.create({
         model: 'claude-3-sonnet-20241022',
-        max_tokens: 4000,
-        system: template.systemPrompt,
+        max_tokens: Number(process.env.CODE_REVIEW_MAX_TOKENS) || 4000,
+        system: `${template.systemPrompt}\n\n${STRUCTURED_OUTPUT_INSTRUCTION}`,
+        tools: [{
+          name: SUBMIT_REVIEW_TOOL_NAME,
+          description: 'Submit the structured code review.',
+          input_schema: anthropicInputSchema as Anthropic.Tool.InputSchema
+        }],
+        tool_choice: { type: 'tool', name: SUBMIT_REVIEW_TOOL_NAME },
         messages: [
           {
             role: 'user',
@@ -170,23 +202,47 @@ export class CodeReviewer {
         ]
       });
 
-      const feedback = response.content[0]?.type === 'text' 
-        ? response.content[0].text 
-        : 'No feedback generated';
-
       const tokensUsed = {
         input: response.usage?.input_tokens || 0,
         output: response.usage?.output_tokens || 0
       };
+
+      // Forced tool use leaves no text block, so feedback is rendered rather than
+      // read. Each failure writes a visible message instead of an empty string.
+      let review: StructuredReview | null = null;
+      let error: string | undefined;
+      let feedback: string;
+
+      const toolUse = response.content.find(block => block.type === 'tool_use');
+
+      if (response.stop_reason === 'max_tokens') {
+        error = `Response truncated at ${tokensUsed.output} output tokens. Raise CODE_REVIEW_MAX_TOKENS or review a smaller file.`;
+        feedback = error;
+      } else if (!toolUse || toolUse.type !== 'tool_use') {
+        error = `Model returned no ${SUBMIT_REVIEW_TOOL_NAME} tool call.`;
+        feedback = error;
+      } else {
+        review = normalizeReviewResponse(toolUse.input);
+        if (review) {
+          feedback = renderStructuredReviewAsText(review);
+        } else {
+          error = `Model returned a ${SUBMIT_REVIEW_TOOL_NAME} payload that does not match the review schema.`;
+          feedback = error;
+        }
+      }
 
       this.tokenTracker.recordUsage(tokensUsed.input, tokensUsed.output);
       
       // Record usage for status tracking
       this.statusChecker.recordRequest('claude-sonnet', tokensUsed.input + tokensUsed.output);
       
-      const hasIssues = this.detectIssues(feedback);
+      const hasIssues = this.resolveVerdict(review, error, feedback);
 
-      console.log(`✅ Review complete (${tokensUsed.input + tokensUsed.output} tokens)`);
+      console.log(
+        error
+          ? `⚠️  Review failed: ${error}`
+          : `✅ Review complete (${tokensUsed.input + tokensUsed.output} tokens)`
+      );
 
       return {
         filePath: file.relativePath,
@@ -195,7 +251,9 @@ export class CodeReviewer {
         tokensUsed,
         timestamp: new Date(),
         hasIssues,
-        authMethod: 'api-key'
+        authMethod: 'api-key',
+        review,
+        ...(error ? { error } : {})
       };
 
     } catch (error) {
@@ -228,7 +286,7 @@ export class CodeReviewer {
     // Add cached results immediately
     cachedFiles.forEach(({ result }, index) => {
       results.push(result);
-      console.log(`💾 [CACHED] ${result.filePath}: ${result.hasIssues ? '🔍 Issues found' : '✅ Clean'}`);
+      console.log(`💾 [CACHED] ${result.filePath}: ${formatIssueStatus(result.hasIssues)}`);
       
       if (onProgress) {
         onProgress(index + 1, files.length, result);
@@ -301,6 +359,21 @@ ${file.content}
 Please provide a thorough code review focusing on the areas mentioned in your instructions.`;
   }
 
+  /**
+   * Three-way verdict. Keyword matching is only trustworthy on the legacy text
+   * path: a failure diagnostic contains 'error', 'problem' and 'missing', all of
+   * which are in the list below, so a failed review must never reach it.
+   */
+  private resolveVerdict(
+    review: StructuredReview | null,
+    error: string | undefined,
+    feedback: string
+  ): boolean | null {
+    if (error) return null;
+    if (review) return review.findings.length > 0;
+    return this.detectIssues(feedback);
+  }
+
   private detectIssues(feedback: string): boolean {
     const issueIndicators = [
       'issue', 'problem', 'error', 'warning', 'concern',
@@ -331,7 +404,7 @@ Please provide a thorough code review focusing on the areas mentioned in your in
   }
 
   private streamResult(result: ReviewResult, current: number, total: number): void {
-    const status = result.hasIssues ? '🔍 Issues found' : '✅ Clean';
+    const status = formatIssueStatus(result.hasIssues);
     const tokens = (result.tokensUsed.input + result.tokensUsed.output).toLocaleString();
     
     console.log(`\n${'='.repeat(80)}`);
@@ -348,13 +421,19 @@ Please provide a thorough code review focusing on the areas mentioned in your in
 
   printReviewSummary(results: ReviewResult[]): void {
     const totalFiles = results.length;
-    const filesWithIssues = results.filter(r => r.hasIssues).length;
+    const filesWithIssues = results.filter(r => r.hasIssues === true).length;
+    // Counted separately rather than folded into "clean", which is what a plain
+    // truthiness filter would do to a review that never produced a verdict.
+    const filesFailed = results.filter(r => r.hasIssues === null).length;
     const totalTokens = results.reduce((sum, r) => sum + r.tokensUsed.input + r.tokensUsed.output, 0);
 
     console.log(`\n📋 Review Summary:`);
     console.log(`   Files reviewed: ${totalFiles}`);
     console.log(`   Files with issues: ${filesWithIssues}`);
-    console.log(`   Files clean: ${totalFiles - filesWithIssues}`);
+    console.log(`   Files clean: ${totalFiles - filesWithIssues - filesFailed}`);
+    if (filesFailed > 0) {
+      console.log(`   Files that failed to review: ${filesFailed}`);
+    }
     console.log(`   Total tokens used: ${totalTokens.toLocaleString()}`);
     console.log(`   Authentication method: ${this.useClaudeCode ? '✅ Claude Code' : '🔑 API Key'}`);
 

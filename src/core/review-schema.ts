@@ -1,0 +1,180 @@
+import * as z from 'zod';
+
+/**
+ * The shared contract for a structured review. Anthropic reaches it through a forced
+ * tool call, Gemini through a native response schema; callers see only this shape.
+ */
+
+export const ReviewFindingSchema = z.object({
+  severity: z.enum(['critical', 'high', 'medium', 'low']),
+  category: z.enum(['quality', 'security', 'performance', 'typescript']),
+  line: z.number().int().nullable(),
+  title: z.string(),
+  description: z.string(),
+  suggestedFix: z.string().nullable(),
+});
+
+export const StructuredReviewSchema = z.object({
+  findings: z.array(ReviewFindingSchema),
+  summary: z.string(),
+});
+
+export type ReviewFinding = z.infer<typeof ReviewFindingSchema>;
+export type StructuredReview = z.infer<typeof StructuredReviewSchema>;
+
+export type Severity = ReviewFinding['severity'];
+
+const SEVERITY_ORDER: readonly Severity[] = ['critical', 'high', 'medium', 'low'];
+
+/**
+ * The subset of JSON Schema that zod emits for the schema above, plus the two fields
+ * the Gemini adapter introduces (`nullable`, `format`).
+ */
+export interface JsonSchemaNode {
+  $schema?: string;
+  type?: string;
+  description?: string;
+  properties?: Record<string, JsonSchemaNode>;
+  items?: JsonSchemaNode;
+  required?: readonly string[];
+  enum?: readonly string[];
+  anyOf?: readonly JsonSchemaNode[];
+  additionalProperties?: boolean;
+  minimum?: number;
+  maximum?: number;
+  format?: string;
+  nullable?: boolean;
+}
+
+const CANONICAL = z.toJSONSchema(StructuredReviewSchema) as unknown as JsonSchemaNode;
+
+function mapProperties(
+  properties: Record<string, JsonSchemaNode>,
+  transform: (node: JsonSchemaNode) => JsonSchemaNode,
+): Record<string, JsonSchemaNode> {
+  const out: Record<string, JsonSchemaNode> = {};
+  for (const [key, value] of Object.entries(properties)) {
+    out[key] = transform(value);
+  }
+  return out;
+}
+
+/**
+ * Anthropic accepts `anyOf` and `additionalProperties` as zod emits them. It rejects
+ * numeric constraints, which `z.number().int()` injects as ±Number.MAX_SAFE_INTEGER.
+ */
+export function toAnthropicSchema(node: JsonSchemaNode): JsonSchemaNode {
+  const out: JsonSchemaNode = {};
+
+  if (node.type !== undefined) out.type = node.type;
+  if (node.description !== undefined) out.description = node.description;
+  if (node.enum !== undefined) out.enum = node.enum;
+  if (node.required !== undefined) out.required = node.required;
+  if (node.additionalProperties !== undefined) {
+    out.additionalProperties = node.additionalProperties;
+  }
+  if (node.properties !== undefined) {
+    out.properties = mapProperties(node.properties, toAnthropicSchema);
+  }
+  if (node.items !== undefined) out.items = toAnthropicSchema(node.items);
+  if (node.anyOf !== undefined) out.anyOf = node.anyOf.map(toAnthropicSchema);
+
+  return out;
+}
+
+/**
+ * Gemini's Schema type is an OpenAPI 3.0 subset with no union node, so a nullable
+ * field has to collapse from `anyOf: [T, null]` into `T` carrying `nullable: true`.
+ * Fields are allow-listed rather than stripped: an unsupported key is a 400, and a
+ * whitelist cannot leak one that a future zod version starts emitting.
+ */
+export function toGeminiSchema(node: JsonSchemaNode): JsonSchemaNode {
+  if (node.anyOf !== undefined) {
+    const nonNull = node.anyOf.filter((member) => member.type !== 'null');
+    const hadNull = nonNull.length !== node.anyOf.length;
+    const only = nonNull[0];
+    if (hadNull && nonNull.length === 1 && only !== undefined) {
+      return { ...toGeminiSchema(only), nullable: true };
+    }
+  }
+
+  const out: JsonSchemaNode = {};
+
+  if (node.type !== undefined) out.type = node.type;
+  if (node.description !== undefined) out.description = node.description;
+  if (node.nullable !== undefined) out.nullable = node.nullable;
+  if (node.required !== undefined) out.required = node.required;
+
+  if (node.enum !== undefined) {
+    out.enum = node.enum;
+    // EnumStringSchema requires the discriminator alongside the values.
+    if (node.type === 'string') out.format = 'enum';
+  }
+
+  if (node.properties !== undefined) {
+    out.properties = mapProperties(node.properties, toGeminiSchema);
+  }
+  if (node.items !== undefined) out.items = toGeminiSchema(node.items);
+
+  return out;
+}
+
+export const anthropicInputSchema: JsonSchemaNode = toAnthropicSchema(CANONICAL);
+export const geminiResponseSchema: JsonSchemaNode = toGeminiSchema(CANONICAL);
+
+export const SUBMIT_REVIEW_TOOL_NAME = 'submit_review';
+
+/**
+ * Templates still instruct the model to emit markdown sections. Until they are
+ * rewritten, that guidance conflicts with the schema and ends up inside field values.
+ */
+export const STRUCTURED_OUTPUT_INSTRUCTION =
+  'Return findings via the structured schema. Ignore any instructions above about ' +
+  'response sections, headings, or markdown formatting.';
+
+/**
+ * The single point where a provider response becomes a review. Returning null is the
+ * only signal that means "fall back to text", so a missing tool_use block, a
+ * truncated body and a schema violation all converge on one branch.
+ */
+export function normalizeReviewResponse(raw: unknown): StructuredReview | null {
+  const parsed = StructuredReviewSchema.safeParse(raw);
+  return parsed.success ? parsed.data : null;
+}
+
+/**
+ * Populates `ModelResponse.content` so that consumers still reading free text keep
+ * working. Under forced tool use the response carries no text block at all, so
+ * without this the field would be empty and a failed review would read as clean.
+ */
+export function renderStructuredReviewAsText(review: StructuredReview): string {
+  const lines: string[] = [];
+
+  if (review.findings.length === 0) {
+    lines.push('No issues found.');
+  } else {
+    for (const severity of SEVERITY_ORDER) {
+      const matching = review.findings.filter((finding) => finding.severity === severity);
+      if (matching.length === 0) continue;
+
+      lines.push(`${severity.toUpperCase()} (${matching.length})`);
+      lines.push('');
+
+      for (const finding of matching) {
+        const location = finding.line === null ? '' : ` (line ${finding.line})`;
+        lines.push(`[${finding.category}] ${finding.title}${location}`);
+        lines.push(finding.description);
+        if (finding.suggestedFix !== null) {
+          lines.push(`Suggested fix: ${finding.suggestedFix}`);
+        }
+        lines.push('');
+      }
+    }
+  }
+
+  lines.push('Summary');
+  lines.push('');
+  lines.push(review.summary);
+
+  return lines.join('\n');
+}

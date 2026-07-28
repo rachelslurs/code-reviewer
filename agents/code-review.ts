@@ -58,7 +58,9 @@ async function main() {
   const templateIndex = args.indexOf('--template');
   let template = config.defaultTemplate;
   if (templateIndex !== -1 && templateIndex < args.length - 1) {
-    template = args[templateIndex + 1];
+    // getTemplates() already falls back for unrecognised names, so this preserves
+    // the existing behaviour rather than adding validation.
+    template = args[templateIndex + 1] as typeof template;
   }
   
   // Parse output format
@@ -165,7 +167,12 @@ async function main() {
 
   // Check authentication methods based on what we actually need
   console.log('\n🔍 Checking authentication...');
-  const hasClaudeCode = needsClaude ? checkClaudeCodeAuth() : false;
+  // Claude Code auth wins everywhere it is detected, and its CLI transport exposes no
+  // tool-use surface. Without this escape the Anthropic API path is unreachable on an
+  // authenticated machine, which makes structured output impossible to exercise.
+  const hasClaudeCode = process.env.CODE_REVIEW_FORCE_API
+    ? false
+    : (needsClaude ? checkClaudeCodeAuth() : false);
   const hasApiKey = needsClaude ? !!(config.apiKey || process.env.ANTHROPIC_API_KEY) : false;
   const hasGeminiKey = needsGemini ? !!(config.geminiApiKey || process.env.GEMINI_API_KEY) : false;
 
@@ -348,7 +355,10 @@ async function main() {
         comparisonMode: false, // We want fallback, not comparison
         timeout: 60000,
         maxRetries: modelFallbackChain.length,
-        autoFallback: true // Enable fallback mode
+        autoFallback: true, // Enable fallback mode
+        // getOptimalModel dereferences this on every review, so an omitted value
+        // throws before the first request is built.
+        templateMappings: config.multiModel?.templateMappings ?? {}
       };
       
       console.log(`🚀 Initializing auto-fallback reviewer with ${modelFallbackChain.length} models`);
@@ -394,7 +404,10 @@ async function main() {
         const geminiConfig = {
           primaryModel: targetModel,
           comparisonMode: false,
-          timeout: 60000
+          timeout: 60000,
+          fallbackModels: config.multiModel?.fallbackModels ?? [],
+          maxRetries: config.multiModel?.maxRetries ?? 2,
+          templateMappings: config.multiModel?.templateMappings ?? {}
         };
         
         reviewer = new MultiModelReviewer(
@@ -470,8 +483,12 @@ async function main() {
         finalFilesToReview,
         reviewTemplate,
         3, // Concurrency level
-        (current, total, result) => {
-          const status = result.hasIssues ? '🔍 Issues found' : '✅ Clean';
+        (current: number, total: number, result: { hasIssues: boolean | null; filePath: string }) => {
+          // A null verdict means the review failed. Collapsing it into the false
+          // branch would report an unreviewed file as clean.
+          const status = result.hasIssues === null
+            ? '⚠️  Review failed'
+            : result.hasIssues ? '🔍 Issues found' : '✅ Clean';
           const progress = sessionManager.getProgress();
           console.log(`[${progress.completed + current}/${progress.total}] ${result.filePath}: ${status}`);
         }

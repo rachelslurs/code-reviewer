@@ -165,7 +165,7 @@ export class FileWatcher {
           return;
         }
       } catch (error) {
-        console.log(`   🚫 File not accessible: ${error.message}`);
+        console.log(`   🚫 File not accessible: ${error instanceof Error ? error.message : String(error)}`);
         return;
       }
       
