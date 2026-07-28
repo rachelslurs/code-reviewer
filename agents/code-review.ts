@@ -18,17 +18,50 @@ import { ModelStatusChecker } from '../src/utils/model-status-checker.js';
 import { InteractiveSelector } from '../src/utils/interactive-selector.js';
 import { FileWatcher } from '../src/utils/file-watcher.js';
 import { OutputFormatter } from '../src/utils/output-formatter.js';
-import { probeClaudeCodeAuth } from '../src/core/claude-cli.js';
+import { probeClaudeCodeAuth, probeClaudeCodeCli } from '../src/core/claude-cli.js';
 
 /**
  * Reads a boolean environment variable. A bare truthiness test on the raw string
  * treats "0" and "false" as enabled, which inverts the caller's intent for exactly
  * the values they are most likely to write.
  */
+const TRUTHY = ['1', 'true', 'yes', 'on'];
+const FALSY = ['0', 'false', 'no', 'off', ''];
+
 function envFlag(name: string): boolean {
   const raw = process.env[name];
   if (raw === undefined) return false;
-  return ['1', 'true', 'yes', 'on'].includes(raw.trim().toLowerCase());
+  const value = raw.trim().toLowerCase();
+  if (TRUTHY.includes(value)) return true;
+  // Anything unrecognised is off, and says so. Silently reading `=enabled` as off
+  // would switch the run to a transport the caller was trying to avoid, with the
+  // variable visibly set in their environment the whole time.
+  if (!FALSY.includes(value)) {
+    console.warn(`⚠️  Ignoring ${name}=${raw}: expected one of ${TRUTHY.join(', ')}. Treating as unset.`);
+  }
+  return false;
+}
+
+/**
+ * Whether reviews should route through the Claude Code CLI rather than the API.
+ *
+ * An errored CLI is still worth attempting when it is the only transport there is,
+ * and is not worth preferring over a working API key: the reviewer construction
+ * below withholds the key whenever this returns true, so an exhausted subscription
+ * would take the whole run down with a usable key sitting unread. The single-model
+ * path has no fallback chain, so there is nothing downstream to recover it.
+ */
+function preferClaudeCodeForReview(hasApiKey: boolean): boolean {
+  const { status, detail } = probeClaudeCodeCli();
+  if (status === 'unavailable') return false;
+  if (status === 'ready') return true;
+
+  if (hasApiKey) {
+    console.warn(`⚠️  Claude Code CLI reported an error (${detail}). Using the Anthropic API key instead.`);
+    return false;
+  }
+  console.warn(`⚠️  Claude Code CLI reported an error (${detail}). Attempting it anyway, since no API key is set. The real message will surface on the first review.`);
+  return true;
 }
 
 async function main() {
@@ -184,10 +217,10 @@ async function main() {
   // withholds the API key when it does. Both transports produce structured output,
   // so this is a cost and latency switch: the CLI runs an agentic session costing
   // roughly six times a direct API call.
+  const hasApiKey = needsClaude ? !!(config.apiKey || process.env.ANTHROPIC_API_KEY) : false;
   const hasClaudeCode = envFlag('CODE_REVIEW_FORCE_API')
     ? false
-    : (needsClaude ? checkClaudeCodeAuth() : false);
-  const hasApiKey = needsClaude ? !!(config.apiKey || process.env.ANTHROPIC_API_KEY) : false;
+    : (needsClaude ? preferClaudeCodeForReview(hasApiKey) : false);
   const hasGeminiKey = needsGemini ? !!(config.geminiApiKey || process.env.GEMINI_API_KEY) : false;
 
   // In auto-fallback mode, we're more flexible about missing auth

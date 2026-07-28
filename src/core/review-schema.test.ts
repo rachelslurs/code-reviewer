@@ -166,6 +166,26 @@ describe('describeSchemaMismatch', () => {
   test('passes a string payload through without re-encoding it', () => {
     expect(describeSchemaMismatch('diag', '{"truncated": ')).toContain('{"truncated": ');
   });
+
+  // This string becomes `feedback`, which the reviewer prints in full to the
+  // terminal for every affected file and writes into the markdown, JSON and HTML
+  // reports. Untruncated, one malformed response pushes every other result out of
+  // the scrollback.
+  test('excerpts an oversized payload from both ends', () => {
+    const payload = `HEAD_MARKER${'x'.repeat(60000)}TAIL_MARKER`;
+    const out = describeSchemaMismatch('diag', payload);
+
+    expect(out.length).toBeLessThan(6000);
+    expect(out).toContain('diag');
+    expect(out).toContain('HEAD_MARKER');
+    expect(out).toContain('TAIL_MARKER');
+    expect(out).toContain('characters omitted');
+  });
+
+  test('leaves a payload under the limit whole', () => {
+    const payload = 'y'.repeat(3000);
+    expect(describeSchemaMismatch('diag', payload)).toContain(payload);
+  });
 });
 
 describe('renderStructuredReviewAsText', () => {

@@ -179,7 +179,30 @@ export function describeSchemaMismatch(diagnostic: string, payload: unknown): st
   }
 
   if (rendered.trim() === '') return diagnostic;
-  return `${diagnostic}\n\nRaw response (unvalidated):\n\n${rendered}`;
+  return `${diagnostic}\n\nRaw response (unvalidated):\n\n${excerpt(rendered)}`;
+}
+
+/**
+ * Head and tail of an oversized payload.
+ *
+ * A schema-violating response can run to tens of kilobytes, and this string
+ * becomes `feedback`, which the reviewer prints in full to the terminal for every
+ * affected file and writes verbatim into the markdown, JSON and HTML reports. One
+ * malformed response would push every other result out of the scrollback. The two
+ * ends are where the shape of the payload is legible, so both are kept.
+ */
+const MAX_PAYLOAD_CHARS = 4000;
+
+function excerpt(rendered: string): string {
+  if (rendered.length <= MAX_PAYLOAD_CHARS) return rendered;
+
+  const half = Math.floor(MAX_PAYLOAD_CHARS / 2);
+  const omitted = rendered.length - MAX_PAYLOAD_CHARS;
+  return [
+    rendered.slice(0, half),
+    `\n\n… ${omitted.toLocaleString()} characters omitted …\n\n`,
+    rendered.slice(-half),
+  ].join('');
 }
 
 /**

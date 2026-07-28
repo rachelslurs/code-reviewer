@@ -4,7 +4,7 @@ import { MultiModelProvider, ModelConfig, ModelResponse, ReviewRequest } from '.
 import { TokenTracker } from './token-tracker.js';
 import { ModelStatusChecker } from '../utils/model-status-checker.js';
 import type { StructuredReview } from './review-schema.js';
-import { formatIssueStatus } from './reviewer.js';
+import { formatIssueStatus, summarizeVerdicts } from './reviewer.js';
 
 export interface MultiModelReviewResult {
   filePath: string;
@@ -281,20 +281,16 @@ export class MultiModelReviewer {
    * Print review summary
    */
   printReviewSummary(results: MultiModelReviewResult[]): void {
-    const totalFiles = results.length;
-    const filesWithIssues = results.filter(r => r.hasIssues === true).length;
-    // Counted separately rather than folded into "clean", which is what a plain
-    // truthiness filter would do to a review that never produced a verdict.
-    const filesFailed = results.filter(r => r.hasIssues === null).length;
+    const verdicts = summarizeVerdicts(results);
     const modelsUsed = [...new Set(results.map(r => r.modelUsed))];
 
     console.log('\n📊 MULTI-MODEL REVIEW SUMMARY');
     console.log('='.repeat(50));
-    console.log(`📁 Files reviewed: ${totalFiles}`);
-    console.log(`🔍 Files with issues: ${filesWithIssues}`);
-    console.log(`✅ Clean files: ${totalFiles - filesWithIssues - filesFailed}`);
-    if (filesFailed > 0) {
-      console.log(`⚠️  Files that failed to review: ${filesFailed}`);
+    console.log(`📁 Files reviewed: ${verdicts.total}`);
+    console.log(`🔍 Files with issues: ${verdicts.withIssues}`);
+    console.log(`✅ Clean files: ${verdicts.clean}`);
+    if (verdicts.failed > 0) {
+      console.log(`⚠️  Files that failed to review: ${verdicts.failed}`);
     }
     console.log(`🤖 Models used: ${modelsUsed.map(m => this.getModelDisplayName(m)).join(', ')}`);
     

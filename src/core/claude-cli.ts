@@ -23,10 +23,15 @@ export interface ClaudeCliResult {
   review: StructuredReview | null;
   error?: string;
   /**
-   * True when the CLI could not be reached or exited non-zero, as opposed to
-   * returning a response that failed validation. Callers throw on this so the
-   * model-fallback chain still fires; a schema violation is not retryable and is
-   * reported instead.
+   * True when the CLI could not be reached, exited non-zero, or reported a session
+   * error, as opposed to returning a response that failed validation. A schema
+   * violation is not retryable; this is.
+   *
+   * What a caller does with it depends on whether it has somewhere to retry.
+   * MultiModelProvider throws, so reviewCode's fallback chain advances to the next
+   * model. CodeReviewer has no chain and reports instead, which also keeps the real
+   * token usage on the result: its catch path zeroes tokensUsed, so throwing there
+   * would show a billed subscription call as free in the summary and the reports.
    */
   transportFailed?: boolean;
   /** Whatever came back when it failed validation, so callers can still show it. */
@@ -61,15 +66,6 @@ function parseJsonOrNull(text: string): unknown {
   }
 }
 
-/**
- * Whether the Claude Code CLI is installed and authenticated.
- *
- * Reads the structured envelope rather than scanning the reply text. The previous
- * substring check asked the model "auth test" and looked for the word
- * "authentication" in the answer; the model would reply asking what was meant by
- * it, mentioning "authentication/authorization", and the probe read its own prompt
- * echoed back as an auth failure.
- */
 export type ClaudeCliStatus = 'ready' | 'errored' | 'unavailable';
 
 /**
@@ -110,13 +106,24 @@ export function probeClaudeCodeCli(): { status: ClaudeCliStatus; detail?: string
   }
 }
 
-/** Back-compatible boolean: an errored-but-present CLI is still worth attempting. */
+/**
+ * Whether the CLI is present at all, for status and setup output.
+ *
+ * An errored CLI counts as present here: `--status` reporting "not authenticated"
+ * to a user who is merely rate-limited sends them to `claude setup-token`, which
+ * does not help. Choosing a transport for an actual review is a different question
+ * and needs to know whether an API key exists, so it reads the status directly.
+ */
 export function probeClaudeCodeAuth(): boolean {
-  const { status, detail } = probeClaudeCodeCli();
-  if (status === 'errored') {
-    console.warn(`⚠️  Claude Code CLI responded with an error (${detail}). Attempting it anyway; the real message will surface on the first review.`);
-  }
-  return status !== 'unavailable';
+  return probeClaudeCodeCli().status !== 'unavailable';
+}
+
+/**
+ * The CLI takes a short alias rather than a model id. Unknown keys resolve to
+ * sonnet, which is what each call site did on its own before this was shared.
+ */
+export function cliModelAlias(modelKey: string): string {
+  return modelKey === 'claude-haiku' ? 'haiku' : 'sonnet';
 }
 
 export function reviewViaClaudeCli(
@@ -188,7 +195,11 @@ export function reviewViaClaudeCli(
       envelope.subtype === 'error_max_turns'
         ? `Claude CLI hit its ${MAX_TURNS}-turn limit before returning a review.`
         : `Claude CLI reported an error (${envelope.subtype ?? 'unknown'}).`;
-    return { review: null, error: reason, costUsd, tokensUsed };
+    // A session error is retryable on another model, unlike a schema violation.
+    // Without this flag a subscription that hits its usage limit mid-run reports
+    // the same error for every remaining file and never reaches the Gemini leg of
+    // the fallback chain.
+    return { review: null, error: reason, transportFailed: true, costUsd, tokensUsed };
   }
 
   // `result` is a JSON *string* when a schema is supplied; `structured_output`

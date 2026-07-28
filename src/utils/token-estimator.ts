@@ -84,6 +84,12 @@ export const MODEL_LIMITS: Record<string, ModelLimits> = {
  */
 const NON_STREAMING_MAX_TOKENS = 16000;
 
+/**
+ * Only reached for a key that is in neither MODEL_LIMITS nor AVAILABLE_MODELS.
+ * Both current callers resolve the key before asking: CodeReviewer's constructor
+ * falls back to claude-sonnet, and callModel throws on an unknown key. A caller
+ * that skips that step gets a quarter of the intended budget with no other signal.
+ */
 const FALLBACK_MAX_TOKENS = 4000;
 
 /**
@@ -106,14 +112,19 @@ export function resolveMaxTokens(modelKey: string): number {
   // review at 16 tokens.
   const trimmed = raw.trim();
   const override = Number(trimmed);
+  // Bounded by `resolved`, not by the model's own cap. Checking against modelCap
+  // let CODE_REVIEW_MAX_TOKENS=64000 through on Sonnet and returned it unclamped,
+  // producing exactly the non-streaming timeout NON_STREAMING_MAX_TOKENS exists to
+  // prevent. The default was guarded and the override, which is the path a user
+  // actively reaches for, was not.
   if (
     !Number.isInteger(override) ||
     String(override) !== trimmed ||
     override < 1 ||
-    override > modelCap
+    override > resolved
   ) {
     console.warn(
-      `⚠️  Ignoring CODE_REVIEW_MAX_TOKENS=${raw}: expected a whole number between 1 and ${modelCap}. Using ${resolved}.`,
+      `⚠️  Ignoring CODE_REVIEW_MAX_TOKENS=${raw}: expected a whole number between 1 and ${resolved}. Using ${resolved}.`,
     );
     return resolved;
   }
