@@ -23,8 +23,8 @@ export interface ModelLimits {
 
 export const MODEL_LIMITS: Record<string, ModelLimits> = {
   'claude-sonnet': {
-    maxInputTokens: 200000,
-    maxOutputTokens: 8192,
+    maxInputTokens: 1000000,
+    maxOutputTokens: 128000,
     rateLimit: {
       requestsPerMinute: 5,
       tokensPerMinute: 40000,
@@ -37,15 +37,15 @@ export const MODEL_LIMITS: Record<string, ModelLimits> = {
   },
   'claude-haiku': {
     maxInputTokens: 200000,
-    maxOutputTokens: 4096,
+    maxOutputTokens: 64000,
     rateLimit: {
       requestsPerMinute: 5,
       tokensPerMinute: 50000,
       requestsPerDay: 1000
     },
     pricing: {
-      inputPer1K: 0.25,  // $0.25 per million input tokens
-      outputPer1K: 1.25  // $1.25 per million output tokens
+      inputPer1K: 1.0,   // $1 per million input tokens
+      outputPer1K: 5.0   // $5 per million output tokens
     }
   },
   'gemini-pro': {
@@ -75,6 +75,29 @@ export const MODEL_LIMITS: Record<string, ModelLimits> = {
     }
   }
 };
+
+/**
+ * Every request in this codebase is non-streaming, and the SDKs hit HTTP timeouts
+ * on non-streaming requests well below the models' real output ceilings. This caps
+ * the request rather than the model, so MODEL_LIMITS stays an honest capability
+ * table for the estimator's own fit checks.
+ */
+const NON_STREAMING_MAX_TOKENS = 16000;
+
+const FALLBACK_MAX_TOKENS = 4000;
+
+/**
+ * A model that truncates at its own cap truncates again on retry, because the
+ * fallback chain changes the model but not this ceiling. The override exists so
+ * verification can force truncation without editing source.
+ */
+export function resolveMaxTokens(modelKey: string): number {
+  const override = Number(process.env.CODE_REVIEW_MAX_TOKENS);
+  if (Number.isFinite(override) && override > 0) return override;
+
+  const modelCap = MODEL_LIMITS[modelKey]?.maxOutputTokens ?? FALLBACK_MAX_TOKENS;
+  return Math.min(modelCap, NON_STREAMING_MAX_TOKENS);
+}
 
 export class TokenEstimator {
   /**

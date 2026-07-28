@@ -6,6 +6,7 @@ import { TokenTracker } from './token-tracker.js';
 import { ReviewTemplate } from '../templates/quality.js';
 import { CacheManager } from '../utils/cache-manager.js';
 import { ModelStatusChecker } from '../utils/model-status-checker.js';
+import { resolveMaxTokens } from '../utils/token-estimator.js';
 import {
   anthropicInputSchema,
   normalizeReviewResponse,
@@ -185,8 +186,8 @@ export class CodeReviewer {
 
     try {
       const response = await this.anthropic!.messages.create({
-        model: 'claude-3-sonnet-20241022',
-        max_tokens: Number(process.env.CODE_REVIEW_MAX_TOKENS) || 4000,
+        model: 'claude-sonnet-5',
+        max_tokens: resolveMaxTokens('claude-sonnet'),
         system: `${template.systemPrompt}\n\n${STRUCTURED_OUTPUT_INSTRUCTION}`,
         tools: [{
           name: SUBMIT_REVIEW_TOOL_NAME,

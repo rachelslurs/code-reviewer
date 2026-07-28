@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { GoogleGenerativeAI, type ResponseSchema } from '@google/generative-ai';
-import { TokenEstimator, MODEL_LIMITS } from '../utils/token-estimator.js';
+import { TokenEstimator, resolveMaxTokens } from '../utils/token-estimator.js';
 import {
   anthropicInputSchema,
   geminiResponseSchema,
@@ -10,19 +10,6 @@ import {
   STRUCTURED_OUTPUT_INSTRUCTION,
   type StructuredReview,
 } from './review-schema.js';
-
-const DEFAULT_MAX_OUTPUT_TOKENS = 4000;
-
-/**
- * A model that truncates at its own cap will truncate again on retry, because the
- * fallback chain changes the model but not this ceiling. Reading the per-model limit
- * is what buys headroom; the override exists so verification needs no source edit.
- */
-function resolveMaxTokens(modelKey: string): number {
-  const override = Number(process.env.CODE_REVIEW_MAX_TOKENS);
-  if (Number.isFinite(override) && override > 0) return override;
-  return MODEL_LIMITS[modelKey]?.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS;
-}
 
 function parseJsonOrNull(text: string): unknown {
   try {
@@ -76,20 +63,20 @@ export interface ModelResponse {
 // Model versions - update these when Anthropic releases newer versions
 // Check: https://docs.anthropic.com/en/docs/about-claude/model-deprecations
 const CLAUDE_MODELS = {
-  SONNET: 'claude-3-5-sonnet-20241220', // Current stable version
-  HAIKU: 'claude-3-5-haiku-20241220'    // Current stable version
+  SONNET: 'claude-sonnet-5',  // aliases carry no date suffix; do not add one
+  HAIKU: 'claude-haiku-4-5'
 };
 
 export const AVAILABLE_MODELS: Record<string, ModelProvider> = {
   'claude-sonnet': {
-    name: 'Claude Sonnet',
+    name: 'Claude Sonnet 5',
     model: CLAUDE_MODELS.SONNET,
     strengths: ['Security analysis', 'Architecture review', 'Cross-file context', 'Documentation'],
     costTier: 'medium',
     speedTier: 'medium'
   },
   'claude-haiku': {
-    name: 'Claude Haiku',
+    name: 'Claude Haiku 4.5',
     model: CLAUDE_MODELS.HAIKU,
     strengths: ['Quick feedback', 'Code style', 'Basic quality checks'],
     costTier: 'low',
