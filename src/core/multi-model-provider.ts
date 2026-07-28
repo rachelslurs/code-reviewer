@@ -1,6 +1,41 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { GoogleGenerativeAI } from '@google/generative-ai';
-import { TokenEstimator } from '../utils/token-estimator.js';
+import { GoogleGenerativeAI, type ResponseSchema } from '@google/generative-ai';
+import { TokenEstimator, MODEL_LIMITS } from '../utils/token-estimator.js';
+import {
+  anthropicInputSchema,
+  geminiResponseSchema,
+  normalizeReviewResponse,
+  renderStructuredReviewAsText,
+  SUBMIT_REVIEW_TOOL_NAME,
+  STRUCTURED_OUTPUT_INSTRUCTION,
+  type StructuredReview,
+} from './review-schema.js';
+
+const DEFAULT_MAX_OUTPUT_TOKENS = 4000;
+
+/**
+ * A model that truncates at its own cap will truncate again on retry, because the
+ * fallback chain changes the model but not this ceiling. Reading the per-model limit
+ * is what buys headroom; the override exists so verification needs no source edit.
+ */
+function resolveMaxTokens(modelKey: string): number {
+  const override = Number(process.env.CODE_REVIEW_MAX_TOKENS);
+  if (Number.isFinite(override) && override > 0) return override;
+  return MODEL_LIMITS[modelKey]?.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS;
+}
+
+function parseJsonOrNull(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  return String(error);
+}
 
 export interface ModelProvider {
   name: string;
@@ -18,6 +53,11 @@ export interface ReviewRequest {
 }
 
 export interface ModelResponse {
+  /**
+   * Rendered review text. Never empty: under forced tool use the API returns no text
+   * block, so this is generated from `review` rather than read off the response.
+   * Consumers that scan free text, such as findConsensusIssues, depend on it.
+   */
   content: string;
   model: string;
   provider: string;
@@ -27,6 +67,10 @@ export interface ModelResponse {
   };
   responseTime: number;
   confidence?: number;
+  /** null when the transport produced no structured output, or when it failed. */
+  review: StructuredReview | null;
+  /** Present only on failure. Absent is the success signal, so check truthiness. */
+  error?: string;
 }
 
 // Model versions - update these when Anthropic releases newer versions
@@ -262,9 +306,9 @@ export class MultiModelProvider {
     }
 
     if (modelKey.startsWith('claude-')) {
-      return await this.callClaude(model, request, startTime);
+      return await this.callClaude(model, request, startTime, modelKey);
     } else if (modelKey.startsWith('gemini-')) {
-      return await this.callGemini(model, request, startTime);
+      return await this.callGemini(model, request, startTime, modelKey);
     } else {
       throw new Error(`Unsupported model provider: ${modelKey}`);
     }
@@ -273,7 +317,7 @@ export class MultiModelProvider {
   /**
    * Call Claude models
    */
-  private async callClaude(model: ModelProvider, request: ReviewRequest, startTime: number): Promise<ModelResponse> {
+  private async callClaude(model: ModelProvider, request: ReviewRequest, startTime: number, modelKey: string): Promise<ModelResponse> {
     if (this.useClaudeCode) {
       // Use Claude Code CLI with proper syntax
       const { execSync } = require('child_process');
@@ -303,7 +347,10 @@ export class MultiModelProvider {
           model: model.model,
           provider: 'claude',
           tokensUsed: { input: 0, output: 0 }, // Claude Code doesn't report tokens
-          responseTime: Date.now() - startTime
+          responseTime: Date.now() - startTime,
+          // The CLI exposes no tool-use surface, so this path is text-only by
+          // transport. Absent `error` keeps it a success, not a failure.
+          review: null
         };
       } catch (error) {
         // Clean up on error
@@ -318,76 +365,117 @@ export class MultiModelProvider {
 
       const response = await this.anthropic.messages.create({
         model: model.model,
-        max_tokens: 4000,
-        system: request.systemPrompt,
+        max_tokens: resolveMaxTokens(modelKey),
+        system: `${request.systemPrompt}\n\n${STRUCTURED_OUTPUT_INSTRUCTION}`,
+        tools: [{
+          name: SUBMIT_REVIEW_TOOL_NAME,
+          description: 'Submit the structured code review.',
+          input_schema: anthropicInputSchema as Anthropic.Tool.InputSchema
+        }],
+        tool_choice: { type: 'tool', name: SUBMIT_REVIEW_TOOL_NAME },
         messages: [{
           role: 'user',
           content: `File: ${request.filename}\n\n${request.code}`
         }]
       });
 
-      const content = response.content
-        .filter(block => block.type === 'text')
-        .map(block => (block as any).text)
-        .join('\n');
+      const tokensUsed = {
+        input: response.usage.input_tokens,
+        output: response.usage.output_tokens
+      };
 
-      return {
-        content,
+      const base = {
         model: model.model,
         provider: 'claude',
-        tokensUsed: {
-          input: response.usage.input_tokens,
-          output: response.usage.output_tokens
-        },
+        tokensUsed,
         responseTime: Date.now() - startTime
       };
+
+      // Truncation and schema violation are different failures and only one of them
+      // is worth another call, so they must not collapse into the same branch.
+      // Retrying truncation would reissue an identical request under an identical
+      // cap, so it is reported rather than thrown into the fallback chain.
+      if (response.stop_reason === 'max_tokens') {
+        const error = `Response truncated at ${tokensUsed.output} output tokens for ${model.model}. Raise CODE_REVIEW_MAX_TOKENS or review a smaller file.`;
+        return { ...base, content: error, review: null, error };
+      }
+
+      const toolUse = response.content.find(block => block.type === 'tool_use');
+      if (!toolUse || toolUse.type !== 'tool_use') {
+        const error = `${model.model} returned no ${SUBMIT_REVIEW_TOOL_NAME} tool call.`;
+        return { ...base, content: error, review: null, error };
+      }
+
+      const review = normalizeReviewResponse(toolUse.input);
+      if (!review) {
+        const error = `${model.model} returned a ${SUBMIT_REVIEW_TOOL_NAME} payload that does not match the review schema.`;
+        return { ...base, content: error, review: null, error };
+      }
+
+      // Forced tool use means there is no text block to read. Rendering here keeps
+      // every downstream consumer of `content` working.
+      return { ...base, content: renderStructuredReviewAsText(review), review };
     }
   }
 
   /**
    * Call Gemini models
    */
-  private async callGemini(model: ModelProvider, request: ReviewRequest, startTime: number): Promise<ModelResponse> {
+  private async callGemini(model: ModelProvider, request: ReviewRequest, startTime: number, modelKey: string): Promise<ModelResponse> {
     if (!this.gemini) {
       throw new Error('Gemini API key not configured');
     }
 
     try {
-      const geminiModel = this.gemini.getGenerativeModel({ model: model.model });
-      
-      const prompt = `${request.systemPrompt}\n\nFile: ${request.filename}\n\nCode:\n\`\`\`\n${request.code}\n\`\`\`\n\nProvide your code review:`;
+      const geminiModel = this.gemini.getGenerativeModel({
+        model: model.model,
+        generationConfig: {
+          responseMimeType: 'application/json',
+          responseSchema: geminiResponseSchema as unknown as ResponseSchema,
+          maxOutputTokens: resolveMaxTokens(modelKey)
+        }
+      });
+
+      const prompt = `${request.systemPrompt}\n\n${STRUCTURED_OUTPUT_INSTRUCTION}\n\nFile: ${request.filename}\n\nCode:\n\`\`\`\n${request.code}\n\`\`\``;
 
       console.log(`🔬 Calling Gemini API with model: ${model.model}`);
-      
+
       const result = await geminiModel.generateContent(prompt);
       const response = await result.response;
-      const content = response.text();
+      const raw = response.text();
 
-      console.log(`✅ Gemini responded successfully (${content.length} chars)`);
+      console.log(`✅ Gemini responded successfully (${raw.length} chars)`);
 
       // Gemini doesn't provide token counts in the same way, estimate
-      const estimatedInputTokens = Math.ceil(prompt.length / 4);
-      const estimatedOutputTokens = Math.ceil(content.length / 4);
-
-      return {
-        content,
+      const base = {
         model: model.model,
         provider: 'gemini',
         tokensUsed: {
-          input: estimatedInputTokens,
-          output: estimatedOutputTokens
+          input: Math.ceil(prompt.length / 4),
+          output: Math.ceil(raw.length / 4)
         },
         responseTime: Date.now() - startTime
       };
+
+      const review = normalizeReviewResponse(parseJsonOrNull(raw));
+      if (!review) {
+        const error = `${model.model} returned a response that does not match the review schema.`;
+        // Unlike the Anthropic path there is real text here, so keep it: malformed
+        // JSON is still readable and more useful than the diagnostic alone.
+        return { ...base, content: raw.trim() || error, review: null, error };
+      }
+
+      return { ...base, content: renderStructuredReviewAsText(review), review };
     } catch (error) {
+      const message = errorMessage(error);
+
       // Handle rate limiting specifically
-      if (error.message && error.message.includes('429')) {
-        console.warn(`🕰️ Gemini rate limit hit - will retry in 30s`);
-        // For now, just throw - but could implement retry logic here
+      if (message.includes('429')) {
+        console.warn(`🕰️ Gemini rate limit hit`);
         throw new Error(`Gemini rate limit exceeded - try again later or use --model claude-sonnet`);
       }
-      
-      console.error(`❌ Gemini API error:`, error.message || error);
+
+      console.error(`❌ Gemini API error:`, message);
       throw error;
     }
   }

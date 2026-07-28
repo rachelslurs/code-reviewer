@@ -10,5 +10,7 @@
     "strict": true,
     "skipLibCheck": true,
     "types": ["bun-types"]
-  }
+  },
+  "include": ["src", "agents"],
+  "exclude": ["node_modules", "about", "test-files"]
 }

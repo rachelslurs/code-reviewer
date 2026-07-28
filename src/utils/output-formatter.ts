@@ -99,7 +99,10 @@ export class OutputFormatter {
       metadata: {
         generatedAt: new Date().toISOString(),
         totalFiles: results.length,
-        filesWithIssues: results.filter(r => r.hasIssues).length,
+        filesWithIssues: results.filter(r => r.hasIssues === true).length,
+        // A file whose review failed is neither clean nor issue-bearing, so it is
+        // counted on its own rather than folded into either.
+        filesFailed: results.filter(r => r.hasIssues === null).length,
         totalTokensUsed: results.reduce((sum, r) => sum + r.tokensUsed.input + r.tokensUsed.output, 0),
         templates: [...new Set(results.map(r => r.template))]
       },
@@ -107,13 +110,17 @@ export class OutputFormatter {
         filePath: result.filePath,
         template: result.template,
         hasIssues: result.hasIssues,
+        // The structured payload is the point of this format. `findings` is null
+        // on the legacy text path and on failure; `feedback` covers both.
+        findings: result.review?.findings ?? null,
+        summary: result.review?.summary ?? null,
+        error: result.error ?? null,
         feedback: result.feedback,
         tokensUsed: result.tokensUsed,
         timestamp: result.timestamp.toISOString(),
         authMethod: result.authMethod
       })),
       summary: {
-        resultsByTemplate: this.groupByTemplate(results),
         issueDistribution: this.calculateIssueDistribution(results)
       }
     };
@@ -244,13 +251,19 @@ export class OutputFormatter {
 
   private static calculateIssueDistribution(results: ReviewResult[]) {
     const totalFiles = results.length;
-    const filesWithIssues = results.filter(r => r.hasIssues).length;
-    
+    const filesWithIssues = results.filter(r => r.hasIssues === true).length;
+    // A truthiness filter would count a failed review as clean here.
+    const filesFailed = results.filter(r => r.hasIssues === null).length;
+    const reviewed = totalFiles - filesFailed;
+
     return {
       totalFiles,
       filesWithIssues,
-      filesClean: totalFiles - filesWithIssues,
-      issueRate: ((filesWithIssues / totalFiles) * 100).toFixed(1) + '%'
+      filesClean: reviewed - filesWithIssues,
+      filesFailed,
+      // Rate is over files that actually produced a verdict, and an empty set has
+      // no rate rather than NaN.
+      issueRate: reviewed === 0 ? null : ((filesWithIssues / reviewed) * 100).toFixed(1) + '%'
     };
   }
 

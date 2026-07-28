@@ -3,11 +3,18 @@ import { ReviewTemplate } from '../templates/quality.js';
 import { MultiModelProvider, ModelConfig, ModelResponse, ReviewRequest } from './multi-model-provider.js';
 import { TokenTracker } from './token-tracker.js';
 import { ModelStatusChecker } from '../utils/model-status-checker.js';
+import type { StructuredReview } from './review-schema.js';
+import { formatIssueStatus } from './reviewer.js';
 
 export interface MultiModelReviewResult {
   filePath: string;
   template: string;
-  hasIssues: boolean;
+  /**
+   * null when the review failed and no verdict was reached. Collapsing that into
+   * false would report an unreviewed file as clean.
+   */
+  hasIssues: boolean | null;
+  /** Rendered review text. Never empty, so text consumers keep working. */
   feedback: string;
   tokensUsed: {
     input: number;
@@ -18,6 +25,10 @@ export interface MultiModelReviewResult {
   modelUsed: string;
   responseTime: number;
   comparisonResults?: ModelResponse[]; // If comparison mode enabled
+  /** null when the transport produced no structured output, or when it failed. */
+  review: StructuredReview | null;
+  /** Present only on failure. Absent is the success signal, so check truthiness. */
+  error?: string;
 }
 
 export class MultiModelReviewer {
@@ -70,17 +81,21 @@ export class MultiModelReviewer {
     } catch (error) {
       console.error(`❌ Failed to review ${file.relativePath}:`, error);
       
-      // Return a fallback result
+      // A file that threw was not reviewed. Reporting hasIssues: false here would
+      // have called it clean, which is the failure this whole path guards against.
+      const message = `Error reviewing file: ${error instanceof Error ? error.message : String(error)}`;
       return {
         filePath: file.relativePath,
         template: template.name,
-        hasIssues: false,
-        feedback: `Error reviewing file: ${error}`,
+        hasIssues: null,
+        feedback: message,
         tokensUsed: { input: 0, output: 0 },
         timestamp: new Date(),
         authMethod: 'multi-model',
         modelUsed: 'error',
-        responseTime: 0
+        responseTime: 0,
+        review: null,
+        error: message
       };
     }
   }
@@ -102,10 +117,14 @@ export class MultiModelReviewer {
     const modelKey = this.getModelKey(modelResult.model);
     this.statusChecker.recordRequest(modelKey, modelResult.tokensUsed.input + modelResult.tokensUsed.output);
 
-    const hasIssues = this.detectIssues(modelResult.content);
-    
-    console.log(`✅ ${request.filename} reviewed by ${this.provider.getModelInfo(this.getModelKey(modelResult.model))?.name} (${modelResult.responseTime}ms)`);
-    
+    const hasIssues = this.resolveVerdict(modelResult.review, modelResult.error, modelResult.content);
+
+    console.log(
+      modelResult.error
+        ? `⚠️  ${request.filename}: ${modelResult.error}`
+        : `✅ ${request.filename} reviewed by ${this.provider.getModelInfo(this.getModelKey(modelResult.model))?.name} (${modelResult.responseTime}ms)`
+    );
+
     return {
       filePath: request.filename,
       template: template.name,
@@ -115,7 +134,9 @@ export class MultiModelReviewer {
       timestamp: new Date(),
       authMethod: 'multi-model',
       modelUsed: modelResult.model,
-      responseTime: modelResult.responseTime
+      responseTime: modelResult.responseTime,
+      review: modelResult.review,
+      ...(modelResult.error ? { error: modelResult.error } : {})
     };
   }
 
@@ -146,8 +167,10 @@ export class MultiModelReviewer {
     const primaryResult = results[0];
     const comparisonSummary = this.provider.generateComparisonSummary(results);
     
+    // primaryResult.content is rendered from its structured review when there is
+    // one, so this concatenation still has real text on both sides.
     const combinedFeedback = primaryResult.content + comparisonSummary;
-    const hasIssues = this.detectIssues(combinedFeedback);
+    const hasIssues = this.resolveVerdict(primaryResult.review, primaryResult.error, combinedFeedback);
     
     const avgResponseTime = results.reduce((sum, r) => sum + r.responseTime, 0) / results.length;
     const totalTokens = results.reduce((sum, r) => ({
@@ -165,6 +188,8 @@ export class MultiModelReviewer {
       tokensUsed: totalTokens,
       timestamp: new Date(),
       authMethod: 'multi-model-comparison',
+      review: primaryResult.review,
+      ...(primaryResult.error ? { error: primaryResult.error } : {}),
       modelUsed: results.map(r => r.model).join('+'),
       responseTime: avgResponseTime,
       comparisonResults: results
@@ -231,7 +256,7 @@ export class MultiModelReviewer {
    * Stream individual result as it completes
    */
   private streamResult(result: MultiModelReviewResult, current: number, total: number): void {
-    const status = result.hasIssues ? '🔍 Issues found' : '✅ Clean';
+    const status = formatIssueStatus(result.hasIssues);
     const model = this.provider.getModelInfo(this.getModelKey(result.modelUsed))?.name || result.modelUsed;
     
     console.log(`\n[${'='.repeat(60)}]`);
@@ -240,7 +265,9 @@ export class MultiModelReviewer {
     console.log(`📊 Status: ${status}`);
     console.log(`🎫 Tokens: ${(result.tokensUsed.input + result.tokensUsed.output).toLocaleString()}`);
     
-    if (result.hasIssues) {
+    // Printed on failure too. Gating on hasIssues alone would show a status line
+    // and suppress the body, which is where the failure explanation lives.
+    if (result.hasIssues !== false) {
       console.log(`\n${'-'.repeat(50)}`);
       console.log(result.feedback);
       console.log(`${'-'.repeat(50)}`);
@@ -252,14 +279,20 @@ export class MultiModelReviewer {
    */
   printReviewSummary(results: MultiModelReviewResult[]): void {
     const totalFiles = results.length;
-    const filesWithIssues = results.filter(r => r.hasIssues).length;
+    const filesWithIssues = results.filter(r => r.hasIssues === true).length;
+    // Counted separately rather than folded into "clean", which is what a plain
+    // truthiness filter would do to a review that never produced a verdict.
+    const filesFailed = results.filter(r => r.hasIssues === null).length;
     const modelsUsed = [...new Set(results.map(r => r.modelUsed))];
-    
+
     console.log('\n📊 MULTI-MODEL REVIEW SUMMARY');
     console.log('='.repeat(50));
     console.log(`📁 Files reviewed: ${totalFiles}`);
     console.log(`🔍 Files with issues: ${filesWithIssues}`);
-    console.log(`✅ Clean files: ${totalFiles - filesWithIssues}`);
+    console.log(`✅ Clean files: ${totalFiles - filesWithIssues - filesFailed}`);
+    if (filesFailed > 0) {
+      console.log(`⚠️  Files that failed to review: ${filesFailed}`);
+    }
     console.log(`🤖 Models used: ${modelsUsed.map(m => this.getModelDisplayName(m)).join(', ')}`);
     
     // Show token usage by provider
@@ -303,6 +336,21 @@ export class MultiModelReviewer {
   setComparisonMode(enabled: boolean): void {
     this.config.comparisonMode = enabled;
     console.log(`🔬 Comparison mode ${enabled ? 'enabled' : 'disabled'}`);
+  }
+
+  /**
+   * Three-way verdict. Keyword matching is only trustworthy on the legacy text
+   * path: this list contains 'error' and 'problem', so a failure diagnostic routed
+   * through it would report issues by accident.
+   */
+  private resolveVerdict(
+    review: StructuredReview | null,
+    error: string | undefined,
+    feedback: string
+  ): boolean | null {
+    if (error) return null;
+    if (review) return review.findings.length > 0;
+    return this.detectIssues(feedback);
   }
 
   private detectIssues(feedback: string): boolean {
