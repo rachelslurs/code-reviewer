@@ -82,16 +82,19 @@ export const AVAILABLE_MODELS: Record<string, ModelProvider> = {
     costTier: 'low',
     speedTier: 'fast'
   },
+  // No Pro-tier Gemini is reachable on a free key (quota limit: 0), so both slots
+  // are flash variants. Aliases rather than pinned IDs: this repo has already
+  // accumulated three sets of retired model strings.
   'gemini-pro': {
-    name: 'Gemini Pro',
-    model: 'gemini-2.5-pro',
+    name: 'Gemini Flash (latest)',
+    model: 'gemini-flash-latest',
     strengths: ['Individual file analysis', 'Performance optimization', 'Bug detection', 'Detailed code review'],
     costTier: 'medium',
     speedTier: 'medium'
   },
   'gemini-flash': {
-    name: 'Gemini Flash',
-    model: 'gemini-2.5-flash',
+    name: 'Gemini Flash Lite (latest)',
+    model: 'gemini-flash-lite-latest',
     strengths: ['Fast reviews', 'Code quality', 'Pattern detection'],
     costTier: 'low',
     speedTier: 'fast'
