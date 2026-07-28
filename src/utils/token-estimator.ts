@@ -155,13 +155,18 @@ export class TokenEstimator {
     const totalTokens = inputTokens + outputTokens;
     const complexity = this.assessComplexity(code, totalTokens);
     
+    const recommendedModel = this.recommendModel(totalTokens, complexity, template);
+
     return {
       inputTokens,
       outputTokens,
       totalTokens,
       complexity,
-      recommendedModel: this.recommendModel(totalTokens, complexity, template),
-      costEstimate: this.estimateCost(inputTokens, outputTokens, 'claude-sonnet') // Default cost estimate
+      recommendedModel,
+      // Priced against the model this estimate is for. Hardcoding claude-sonnet
+      // quoted Sonnet's rate for every run, so a review on a free Gemini tier
+      // printed "Estimated cost: $0.0068" directly above "Free tier".
+      costEstimate: this.estimateCost(inputTokens, outputTokens, recommendedModel)
     };
   }
 

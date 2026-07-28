@@ -65,11 +65,13 @@ const Templates = () => {
           </div>
           <p className="text-zinc-400 max-w-xl">
             Each template is tuned for one aspect of quality and mapped to the model
-            that handles it best.
+            that handles it best. A fifth, <span className="text-zinc-200">combined</span>,
+            runs all four in a single pass.
           </p>
         </div>
 
-        {/* First 4 Templates - 2x2 Grid */}
+        {/* The four focused templates. Combined is intentionally not a card:
+            it is named in the copy above and documented in the README. */}
         <div className="grid grid-cols-1 md:grid-cols-2 auto-rows-fr gap-4 mb-4">
           {templates.slice(0, 4).map((template, index) => (
             <div
