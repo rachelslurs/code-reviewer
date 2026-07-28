@@ -1,4 +1,4 @@
-import { ReviewResult } from '../core/reviewer.js';
+import { ReviewResult, formatIssueStatus } from '../core/reviewer.js';
 import { writeFileSync } from 'fs';
 import { join } from 'path';
 
@@ -50,7 +50,8 @@ export class OutputFormatter {
   private static formatMarkdown(results: ReviewResult[], options: OutputOptions): string {
     const timestamp = new Date().toISOString();
     const totalFiles = results.length;
-    const filesWithIssues = results.filter(r => r.hasIssues).length;
+    const filesWithIssues = results.filter(r => r.hasIssues === true).length;
+    const filesFailed = results.filter(r => r.hasIssues === null).length;
     const totalTokens = results.reduce((sum, r) => sum + r.tokensUsed.input + r.tokensUsed.output, 0);
 
     let markdown = `# Code Review Report
@@ -58,7 +59,8 @@ export class OutputFormatter {
 **Generated:** ${new Date().toLocaleString()}
 **Files Reviewed:** ${totalFiles}
 **Files with Issues:** ${filesWithIssues}
-**Files Clean:** ${totalFiles - filesWithIssues}
+**Files Clean:** ${totalFiles - filesWithIssues - filesFailed}
+**Files Failed:** ${filesFailed}
 **Total Tokens Used:** ${totalTokens.toLocaleString()}
 
 ---
@@ -72,11 +74,11 @@ export class OutputFormatter {
       markdown += `## 🎯 ${template.toUpperCase()} Review Results\n\n`;
       
       templateResults.forEach((result, index) => {
-        const statusIcon = result.hasIssues ? '🔍' : '✅';
+        const statusIcon = result.hasIssues === null ? '⚠️' : result.hasIssues ? '🔍' : '✅';
         const tokens = (result.tokensUsed.input + result.tokensUsed.output).toLocaleString();
         
         markdown += `### ${statusIcon} ${result.filePath}\n\n`;
-        markdown += `**Status:** ${result.hasIssues ? 'Issues Found' : 'Clean'} | `;
+        markdown += `**Status:** ${result.hasIssues === null ? 'Review Failed' : result.hasIssues ? 'Issues Found' : 'Clean'} | `;
         markdown += `**Tokens:** ${tokens} | `;
         markdown += `**Reviewed:** ${result.timestamp.toLocaleString()}\n\n`;
         
@@ -131,7 +133,8 @@ export class OutputFormatter {
   private static formatHTML(results: ReviewResult[], options: OutputOptions): string {
     const timestamp = new Date().toLocaleString();
     const totalFiles = results.length;
-    const filesWithIssues = results.filter(r => r.hasIssues).length;
+    const filesWithIssues = results.filter(r => r.hasIssues === true).length;
+    const filesFailed = results.filter(r => r.hasIssues === null).length;
     const totalTokens = results.reduce((sum, r) => sum + r.tokensUsed.input + r.tokensUsed.output, 0);
 
     let html = `<!DOCTYPE html>
@@ -152,6 +155,7 @@ export class OutputFormatter {
         .status-badge { display: inline-block; padding: 4px 12px; border-radius: 16px; font-size: 0.8em; font-weight: 500; }
         .status-issues { background: #fff3cd; color: #856404; }
         .status-clean { background: #d1f2eb; color: #155724; }
+        .status-failed { background: #f8d7da; color: #721c24; }
         .feedback { background: #f8f9fa; padding: 15px; border-radius: 6px; white-space: pre-wrap; font-family: 'Monaco', monospace; font-size: 0.9em; }
         .template-section { margin-bottom: 40px; }
         .template-title { color: #667eea; border-bottom: 2px solid #667eea; padding-bottom: 10px; margin-bottom: 20px; }
@@ -173,8 +177,12 @@ export class OutputFormatter {
             <div>Files with Issues</div>
         </div>
         <div class="stat-card">
-            <div class="stat-number">${totalFiles - filesWithIssues}</div>
+            <div class="stat-number">${totalFiles - filesWithIssues - filesFailed}</div>
             <div>Clean Files</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-number">${filesFailed}</div>
+            <div>Failed Reviews</div>
         </div>
         <div class="stat-card">
             <div class="stat-number">${totalTokens.toLocaleString()}</div>
@@ -192,8 +200,8 @@ export class OutputFormatter {
 `;
       
       templateResults.forEach((result) => {
-        const statusClass = result.hasIssues ? 'status-issues' : 'status-clean';
-        const statusText = result.hasIssues ? 'Issues Found' : 'Clean';
+        const statusClass = result.hasIssues === null ? 'status-failed' : result.hasIssues ? 'status-issues' : 'status-clean';
+        const statusText = result.hasIssues === null ? 'Review Failed' : result.hasIssues ? 'Issues Found' : 'Clean';
         const tokens = (result.tokensUsed.input + result.tokensUsed.output).toLocaleString();
         
         html += `        <div class="result-item">
@@ -229,7 +237,7 @@ export class OutputFormatter {
     results.forEach((result, index) => {
       output += `\n${index + 1}. ${result.filePath}\n`;
       output += `   Template: ${result.template}\n`;
-      output += `   Status: ${result.hasIssues ? '🔍 Issues found' : '✅ Clean'}\n`;
+      output += `   Status: ${formatIssueStatus(result.hasIssues)}\n`;
       output += `   Tokens: ${(result.tokensUsed.input + result.tokensUsed.output).toLocaleString()}\n`;
       output += '\n' + '-'.repeat(60) + '\n';
       output += result.feedback + '\n';

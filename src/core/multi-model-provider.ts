@@ -328,6 +328,13 @@ export class MultiModelProvider {
         console.log(`   💳 Subscription usage: $${cli.costUsd.toFixed(4)} equivalent`);
       }
 
+      // A transport failure is retryable on another model, and the fallback chain
+      // in reviewCode only fires from a catch. Returning here instead of throwing
+      // would silently bypass --auto-fallback.
+      if (cli.transportFailed) {
+        throw new Error(cli.error ?? 'Claude CLI transport failed.');
+      }
+
       if (!cli.review) {
         const error = cli.error ?? 'Claude CLI returned no review.';
         return { ...base, content: error, review: null, error };

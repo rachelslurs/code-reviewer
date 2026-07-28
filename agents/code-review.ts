@@ -19,6 +19,17 @@ import { FileWatcher } from '../src/utils/file-watcher.js';
 import { OutputFormatter } from '../src/utils/output-formatter.js';
 import { probeClaudeCodeAuth } from '../src/core/claude-cli.js';
 
+/**
+ * Reads a boolean environment variable. A bare truthiness test on the raw string
+ * treats "0" and "false" as enabled, which inverts the caller's intent for exactly
+ * the values they are most likely to write.
+ */
+function envFlag(name: string): boolean {
+  const raw = process.env[name];
+  if (raw === undefined) return false;
+  return ['1', 'true', 'yes', 'on'].includes(raw.trim().toLowerCase());
+}
+
 async function main() {
   const args = process.argv.slice(2);
   
@@ -172,7 +183,7 @@ async function main() {
   // withholds the API key when it does. Both transports produce structured output,
   // so this is a cost and latency switch: the CLI runs an agentic session costing
   // roughly six times a direct API call.
-  const hasClaudeCode = process.env.CODE_REVIEW_FORCE_API
+  const hasClaudeCode = envFlag('CODE_REVIEW_FORCE_API')
     ? false
     : (needsClaude ? checkClaudeCodeAuth() : false);
   const hasApiKey = needsClaude ? !!(config.apiKey || process.env.ANTHROPIC_API_KEY) : false;
