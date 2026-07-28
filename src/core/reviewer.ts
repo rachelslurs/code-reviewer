@@ -8,6 +8,7 @@ import { CacheManager } from '../utils/cache-manager.js';
 import { ModelStatusChecker } from '../utils/model-status-checker.js';
 import { resolveMaxTokens } from '../utils/token-estimator.js';
 import { reviewViaClaudeCli, probeClaudeCodeAuth } from './claude-cli.js';
+import { AVAILABLE_MODELS } from './multi-model-provider.js';
 import {
   anthropicInputSchema,
   normalizeReviewResponse,
@@ -53,7 +54,13 @@ export class CodeReviewer {
   private cacheManager: CacheManager;
   private statusChecker: ModelStatusChecker;
 
-  constructor(apiKey?: string, forceClaudeCode?: boolean, enableCache: boolean = true) {
+  constructor(
+    apiKey?: string,
+    forceClaudeCode?: boolean,
+    enableCache: boolean = true,
+    /** Key into AVAILABLE_MODELS. Without this --model never reached the request. */
+    private modelKey: string = 'claude-sonnet',
+  ) {
     this.tokenTracker = new TokenTracker();
     this.cacheManager = enableCache ? new CacheManager() : null as any;
     this.statusChecker = new ModelStatusChecker();
@@ -112,7 +119,7 @@ export class CodeReviewer {
       // The CLI reports real usage, so these are no longer length/4 guesses.
       const tokensUsed = cli.tokensUsed;
       this.tokenTracker.recordUsage(tokensUsed.input, tokensUsed.output);
-      this.statusChecker.recordRequest('claude-sonnet', tokensUsed.input + tokensUsed.output);
+      this.statusChecker.recordRequest(this.modelKey, tokensUsed.input + tokensUsed.output);
 
       if (cli.costUsd > 0) {
         console.log(`   💳 Subscription usage: $${cli.costUsd.toFixed(4)} equivalent`);
@@ -161,8 +168,8 @@ export class CodeReviewer {
 
     try {
       const response = await this.anthropic!.messages.create({
-        model: 'claude-sonnet-5',
-        max_tokens: resolveMaxTokens('claude-sonnet'),
+        model: AVAILABLE_MODELS[this.modelKey]?.model ?? AVAILABLE_MODELS['claude-sonnet'].model,
+        max_tokens: resolveMaxTokens(this.modelKey),
         system: `${template.systemPrompt}\n\n${STRUCTURED_OUTPUT_INSTRUCTION}`,
         tools: [{
           name: SUBMIT_REVIEW_TOOL_NAME,
@@ -210,7 +217,7 @@ export class CodeReviewer {
       this.tokenTracker.recordUsage(tokensUsed.input, tokensUsed.output);
       
       // Record usage for status tracking
-      this.statusChecker.recordRequest('claude-sonnet', tokensUsed.input + tokensUsed.output);
+      this.statusChecker.recordRequest(this.modelKey, tokensUsed.input + tokensUsed.output);
       
       const hasIssues = this.resolveVerdict(review, error, feedback);
 

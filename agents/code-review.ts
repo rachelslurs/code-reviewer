@@ -12,6 +12,7 @@ import { typescriptTemplate } from '../src/templates/typescript.js';
 import { combinedTemplate } from '../src/templates/combined.js';
 import { CacheManager } from '../src/utils/cache-manager.js';
 import { MultiModelReviewer } from '../src/core/multi-model-reviewer.js';
+import type { ModelConfig } from '../src/core/multi-model-provider.js';
 import { ReviewSessionManager } from '../src/utils/session-manager.js';
 import { ModelStatusChecker } from '../src/utils/model-status-checker.js';
 import { InteractiveSelector } from '../src/utils/interactive-selector.js';
@@ -390,13 +391,14 @@ async function main() {
       const geminiApiKey = config.geminiApiKey || process.env.GEMINI_API_KEY;
       
       // Configure multi-model settings
-      const multiModelConfig = {
+      const multiModelConfig: ModelConfig = {
         ...config.multiModel!,
         comparisonMode: comparisonMode || config.multiModel!.comparisonMode
       };
       
       if (specificModel) {
         multiModelConfig.primaryModel = specificModel;
+        multiModelConfig.explicitModel = specificModel;
       }
       
       reviewer = new MultiModelReviewer(
@@ -416,6 +418,7 @@ async function main() {
         const geminiApiKey = config.geminiApiKey || process.env.GEMINI_API_KEY;
         const geminiConfig = {
           primaryModel: targetModel,
+          explicitModel: targetModel,
           comparisonMode: false,
           timeout: 60000,
           fallbackModels: config.multiModel?.fallbackModels ?? [],
@@ -436,7 +439,8 @@ async function main() {
         reviewer = new CodeReviewer(
           hasClaudeCode ? undefined : apiKey,
           hasClaudeCode,
-          !noCache
+          !noCache,
+          targetModel
         );
       }
     }
