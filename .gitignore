@@ -59,3 +59,9 @@ pids
 tmp/
 temp/
 *.tmp
+
+# Generated review reports
+code-review-*.md
+code-review-*.json
+code-review-*.html
+code-review-*.txt
