@@ -17,6 +17,7 @@ import { ModelStatusChecker } from '../src/utils/model-status-checker.js';
 import { InteractiveSelector } from '../src/utils/interactive-selector.js';
 import { FileWatcher } from '../src/utils/file-watcher.js';
 import { OutputFormatter } from '../src/utils/output-formatter.js';
+import { probeClaudeCodeAuth } from '../src/core/claude-cli.js';
 
 async function main() {
   const args = process.argv.slice(2);
@@ -167,9 +168,10 @@ async function main() {
 
   // Check authentication methods based on what we actually need
   console.log('\n🔍 Checking authentication...');
-  // Claude Code auth wins everywhere it is detected, and its CLI transport exposes no
-  // tool-use surface. Without this escape the Anthropic API path is unreachable on an
-  // authenticated machine, which makes structured output impossible to exercise.
+  // Claude Code auth wins everywhere it is detected, and the CLI construction below
+  // withholds the API key when it does. Both transports produce structured output,
+  // so this is a cost and latency switch: the CLI runs an agentic session costing
+  // roughly six times a direct API call.
   const hasClaudeCode = process.env.CODE_REVIEW_FORCE_API
     ? false
     : (needsClaude ? checkClaudeCodeAuth() : false);
@@ -734,65 +736,7 @@ function getTemplates(templateName: string) {
 }
 
 function checkClaudeCodeAuth(): boolean {
-  try {
-    // Check if claude command exists and get version
-    const version = execSync('claude --version', { 
-      encoding: 'utf8', 
-      stdio: 'pipe',
-      timeout: 5000
-    });
-    
-    console.log(`🔍 Detected Claude Code: ${version.trim()}`);
-    
-    // Test authentication using a simple model alias that should exist
-    const testResult = execSync('echo "Hello" | claude --print --model sonnet', {
-      encoding: 'utf8',
-      stdio: 'pipe',
-      timeout: 15000 // 15 second timeout for API call
-    });
-    
-    // Check if we got a successful response (any text response means auth worked)
-    const lowerResult = testResult.toLowerCase();
-    const hasAuthError = lowerResult.includes('authentication') ||
-                        lowerResult.includes('unauthorized') ||
-                        lowerResult.includes('not authenticated') ||
-                        lowerResult.includes('setup-token') ||
-                        lowerResult.includes('login required');
-    
-    // Max tokens error means auth worked, just wrong model limits
-    const hasMaxTokensError = lowerResult.includes('max_tokens');
-    
-    const isAuthenticated = !hasAuthError || hasMaxTokensError;
-    
-    console.log(`🔐 Authentication test: ${isAuthenticated ? 'Passed' : 'Failed - run claude setup-token'}`);
-    return isAuthenticated;
-    
-  } catch (error: any) {
-    console.log(`❌ Claude Code check failed: ${error.message}`);
-    
-    // Show more details about the error
-    if (error.stderr) {
-      console.log(`   stderr: ${error.stderr.toString()}`);
-    }
-    if (error.stdout) {
-      console.log(`   stdout: ${error.stdout.toString()}`);
-      
-      // Check if the error is just max_tokens (which means auth actually works)
-      const stdout = error.stdout.toString().toLowerCase();
-      if (stdout.includes('max_tokens')) {
-        console.log(`🔐 Authentication actually works (just a max_tokens limit issue)`);
-        return true;
-      }
-      
-      // Check if it's a model not found error (which also means auth works)
-      if (stdout.includes('not_found_error') && stdout.includes('model')) {
-        console.log(`🔐 Authentication works (just wrong model name)`);
-        return true;
-      }
-    }
-    
-    return false;
-  }
+  return probeClaudeCodeAuth();
 }
 
 // Run the main function
