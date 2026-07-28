@@ -92,11 +92,33 @@ const FALLBACK_MAX_TOKENS = 4000;
  * verification can force truncation without editing source.
  */
 export function resolveMaxTokens(modelKey: string): number {
-  const override = Number(process.env.CODE_REVIEW_MAX_TOKENS);
-  if (Number.isFinite(override) && override > 0) return override;
-
   const modelCap = MODEL_LIMITS[modelKey]?.maxOutputTokens ?? FALLBACK_MAX_TOKENS;
-  return Math.min(modelCap, NON_STREAMING_MAX_TOKENS);
+  const resolved = Math.min(modelCap, NON_STREAMING_MAX_TOKENS);
+
+  const raw = process.env.CODE_REVIEW_MAX_TOKENS;
+  if (raw === undefined || raw.trim() === '') return resolved;
+
+  // A bare `Number.isFinite(n) && n > 0` accepts 1.5 and reads "16.000" as 16,
+  // which the SDK forwards: the first is rejected with an opaque 400, the second
+  // truncates every review at 16 tokens. Both look like model failures.
+  // The round-trip is what catches a thousands separator: Number("16.000") is
+  // exactly 16, so an integer check alone accepts it and silently caps every
+  // review at 16 tokens.
+  const trimmed = raw.trim();
+  const override = Number(trimmed);
+  if (
+    !Number.isInteger(override) ||
+    String(override) !== trimmed ||
+    override < 1 ||
+    override > modelCap
+  ) {
+    console.warn(
+      `⚠️  Ignoring CODE_REVIEW_MAX_TOKENS=${raw}: expected a whole number between 1 and ${modelCap}. Using ${resolved}.`,
+    );
+    return resolved;
+  }
+
+  return override;
 }
 
 export class TokenEstimator {

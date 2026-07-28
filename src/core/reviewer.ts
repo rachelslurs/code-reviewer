@@ -12,6 +12,7 @@ import {
   anthropicInputSchema,
   normalizeReviewResponse,
   renderStructuredReviewAsText,
+  describeSchemaMismatch,
   SUBMIT_REVIEW_TOOL_NAME,
   STRUCTURED_OUTPUT_INSTRUCTION,
   type StructuredReview,
@@ -119,7 +120,7 @@ export class CodeReviewer {
 
       const feedback = cli.review
         ? renderStructuredReviewAsText(cli.review)
-        : (cli.error ?? 'Claude CLI returned no review.');
+        : describeSchemaMismatch(cli.error ?? 'Claude CLI returned no review.', cli.rawPayload);
 
       console.log(
         cli.review
@@ -202,7 +203,7 @@ export class CodeReviewer {
           feedback = renderStructuredReviewAsText(review);
         } else {
           error = `Model returned a ${SUBMIT_REVIEW_TOOL_NAME} payload that does not match the review schema.`;
-          feedback = error;
+          feedback = describeSchemaMismatch(error, toolUse.input);
         }
       }
 
@@ -299,8 +300,27 @@ export class CodeReviewer {
           
           return result;
         } catch (error) {
-          console.error(`Failed to review ${file.relativePath}, skipping...`);
-          return null;
+          // Returning null here dropped the file from the results array entirely,
+          // so the summary counted 8 of 10 with no sign the other 2 were never
+          // reviewed. A null verdict keeps it visible everywhere downstream.
+          const message = `Error reviewing file: ${error instanceof Error ? error.message : String(error)}`;
+          console.error(`❌ ${file.relativePath}: ${message}`);
+          const failed: ReviewResult = {
+            filePath: file.relativePath,
+            template: template.name,
+            feedback: message,
+            tokensUsed: { input: 0, output: 0 },
+            timestamp: new Date(),
+            hasIssues: null,
+            authMethod: this.useClaudeCode ? 'claude-code' : 'api-key',
+            review: null,
+            error: message,
+          };
+          this.streamResult(failed, processedCount + batchIndex + 1, files.length);
+          if (onProgress) {
+            onProgress(processedCount + batchIndex + 1, files.length, failed);
+          }
+          return failed;
         }
       });
 
