@@ -7,7 +7,7 @@ const Templates = () => {
       icon: '✨',
       color: 'from-blue-500  to-blue-600',
       description: 'Code organization, naming, duplication, complexity, error handling',
-      model: 'Gemini Flash',
+      model: 'Gemini Flash Lite',
       command: 'code-review --template quality ./src',
       bestFor: 'Daily code review, maintainability'
     },
@@ -16,7 +16,7 @@ const Templates = () => {
       icon: '🔒',
       color: 'from-red-500 to-red-600',
       description: 'Vulnerabilities, data validation, injection attacks, authentication issues',
-      model: 'Claude Sonnet',
+      model: 'Claude Sonnet 5',
       command: 'code-review --template security ./src',
       bestFor: 'Production deployments, security audits'
     },
@@ -25,7 +25,7 @@ const Templates = () => {
       icon: '⚡',
       color: 'from-yellow-500 to-yellow-600',
       description: 'Bundle size optimization, async patterns, memory usage',
-      model: 'Gemini Flash',
+      model: 'Gemini Flash Lite',
       command: 'code-review --template performance ./src',
       bestFor: 'Optimization, bundle size reduction'
     },
@@ -34,7 +34,7 @@ const Templates = () => {
       icon: '📘',
       color: 'from-indigo-500 to-indigo-600',
       description: 'Type safety, strict mode compliance, generic usage',
-      model: 'Gemini Flash',
+      model: 'Gemini Flash Lite',
       command: 'code-review --template typescript ./src',
       bestFor: 'Type safety, migration to strict mode'
     },
@@ -43,7 +43,7 @@ const Templates = () => {
       icon: '🎯',
       color: 'from-purple-500 to-purple-600',
       description: 'All review types in one comprehensive analysis',
-      model: 'Claude Sonnet',
+      model: 'Claude Sonnet 5',
       command: 'code-review --template combined ./src',
       bestFor: 'Comprehensive analysis in single pass',
       recommended: true

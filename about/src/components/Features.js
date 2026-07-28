@@ -3,12 +3,23 @@ import React from 'react';
 const Features = () => {
   const features = [
     {
+      icon: '🔒',
+      title: 'Structured Output',
+      description: 'Every model returns findings against one shared schema.',
+      highlights: [
+        'Severity & category',
+        'Line-level findings',
+        'Same shape per model',
+        'Machine-readable JSON'
+      ]
+    },
+    {
       icon: '🤖',
       title: 'Multi-Model AI',
       description: 'Claude, Gemini, and smart fallbacks for optimal performance.',
       highlights: [
-        'Claude Sonnet & Haiku',
-        'Gemini Pro & Flash',
+        'Claude Sonnet 5 & Haiku 4.5',
+        'Gemini Flash',
         'Auto fallbacks',
         'Token tracking'
       ]
@@ -49,11 +60,11 @@ const Features = () => {
         </div>
 
         {/* Features Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           {features.map((feature, index) => (
             <div
               key={index}
-              className="group bg-gradient-to-r from-primary-50 to-secondary-50  rounded-2xl p-8 card-hover border border-gray-100"
+              className="group bg-gradient-to-r from-primary-50 to-secondary-50  rounded-2xl p-6 card-hover border border-gray-100"
             >
               <div className="flex items-start space-x-4">
                 <div className="feature-icon bg-black/10 text-secondary-600 group-hover:bg-secondary-200 transition-colors duration-300">
