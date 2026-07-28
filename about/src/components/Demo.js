@@ -143,8 +143,16 @@ const Demo = () => {
   ];
 
   return (
-    <section id="demo" className="pb-24">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <section id="demo" className="relative py-24 seam-top" style={{ background: 'var(--surface-1)' }}>
+      <div className="max-w-6xl mx-auto px-6 lg:px-8">
+        <div className="mb-12">
+          <div className="flex items-center gap-4 mb-4">
+            <h2 className="text-3xl sm:text-4xl font-bold text-white">
+              In use
+            </h2>
+            <span className="rule flex-1"></span>
+          </div>
+        </div>
 
         {/* Terminal with Tabs */}
         <div className="bg-gray-900 rounded-2xl overflow-hidden shadow-2xl">
@@ -168,7 +176,7 @@ const Demo = () => {
                       className={`px-4 py-2 text-xs md:text-sm transition-all duration-300 rounded-t-lg relative ${
                         activeDemo === demo.id
                           ? 'bg-gray-900 text-white'
-                          : 'bg-gray-700 text-gray-400 hover:text-white hover:bg-gray-600'
+                          : 'bg-gray-700 text-gray-300 hover:text-white hover:bg-gray-600'
                       }`}
                     >
                       <div className="flex items-center space-x-2">

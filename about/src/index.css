@@ -2,33 +2,248 @@
 @tailwind components;
 @tailwind utilities;
 
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
+/*
+  Phosphor terminal. The product is a CLI, so the page is one dark canvas with
+  tonal steps rather than alternating light and dark bands. Green is a sharp
+  accent on a gray field, not half of a gradient.
+*/
+:root {
+  /* Section surfaces, ordered as a rhythm rather than a uniform floor:
+     void -> raised -> void -> LIGHT -> green room -> void. The light band is the
+     one place you act rather than read, so it earns the legibility. */
+  --surface-0: #09090b;   /* void: hero, demo, footer */
+  --surface-1: #16161a;   /* raised: features */
+  --surface-2: #1c1c20;   /* card on a raised surface */
+  --surface-lit: #eceae5; /* the one light room: installation */
+  --surface-green: #0c1a16;/* green-tinted: templates */
+  --surface-blue: #0d141f; /* screened blue: features */
+  --edge: rgba(255, 255, 255, 0.07);
+  --edge-strong: rgba(255, 255, 255, 0.13);
+  --phosphor: #4ade80;    /* terminal green, the accent that carries everything */
+}
 
 @layer base {
   html {
     font-family: 'DM Sans', system-ui, sans-serif;
+    scroll-behavior: smooth;
   }
-  
+
   body {
-    @apply bg-gray-50 text-gray-900;
+    background-color: var(--surface-0);
+    @apply text-zinc-300 antialiased;
+  }
+
+  ::selection {
+    background: var(--phosphor);
+    color: #09090b;
+  }
+
+  /* The accent reads as a light source, so focus rings glow rather than outline. */
+  *:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--surface-0), 0 0 0 4px var(--phosphor);
   }
 }
 
 @layer components {
   .gradient-text {
-    @apply bg-gradient-to-r from-primary-600 to-secondary-900 bg-clip-text text-transparent;
+    @apply bg-gradient-to-r from-green-300 to-green-500 bg-clip-text text-transparent;
   }
-  
+
+  /* Depth from hairlines and a phosphor bloom. Drop shadows go muddy on dark. */
   .card-hover {
-    @apply transition-all duration-300 hover:shadow-xl hover:-translate-y-1;
+    @apply transition-all duration-300;
   }
-  
+  .card-hover:hover {
+    border-color: rgba(74, 222, 128, 0.45);
+    box-shadow: 0 0 0 1px rgba(74, 222, 128, 0.14), 0 18px 40px -24px rgba(0, 0, 0, 0.9);
+    transform: translateY(-2px);
+  }
+
   .code-block {
-    @apply bg-gray-900 text-gray-100 p-4 rounded-lg font-mono text-sm overflow-x-auto;
+    @apply font-mono text-sm overflow-x-auto rounded-md p-4;
+    background: var(--surface-0);
+    border: 1px solid var(--edge);
+    color: #d4d4d8;
   }
-  
+
   .feature-icon {
-    @apply w-12 h-12 rounded-lg flex items-center justify-center text-2xl;
+    @apply w-11 h-11 rounded-md flex items-center justify-center text-xl;
+  }
+
+  .panel {
+    background: var(--surface-2);
+    border: 1px solid var(--edge);
+    @apply rounded-lg;
+  }
+
+  /* Panel inverted for the light room. Same shape language, opposite value. */
+  .panel-lit {
+    background: #ffffff;
+    border: 1px solid rgba(9, 9, 11, 0.10);
+    @apply rounded-lg;
+  }
+
+  .eyebrow-lit {
+    @apply font-mono text-xs tracking-[0.25em] uppercase;
+    color: #1a6251;
+  }
+
+  .rule-lit {
+    height: 1px;
+    background: linear-gradient(90deg, rgba(9, 9, 11, 0.22), transparent);
+  }
+
+  /* Seam between sections, so a value change reads as intentional. */
+  .seam-top {
+    border-top: 1px solid var(--edge);
+  }
+
+  /* Card sitting on the blue field. Tinted so it reads as the same room. */
+  .panel-blue {
+    background: #141c29;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    @apply rounded-lg;
+  }
+
+  /* Section label. Reads as a prompt, and gives hierarchy by family not size. */
+  .eyebrow {
+    @apply font-mono text-xs tracking-[0.25em] uppercase;
+    color: var(--phosphor);
+  }
+
+  .rule {
+    height: 1px;
+    background: linear-gradient(90deg, var(--edge-strong), transparent);
+  }
+
+  /* Dot separator for items sitting on one line. Drawn rather than set as a
+     middot glyph, because Bungee has no middot and the fallback face would put
+     it at its own height. Sized and raised in cap units, so the centre lands on
+     the cap-height midline at whatever size it inherits. The em values cover
+     browsers without the cap unit. */
+  .dot-sep {
+    display: inline-block;
+    width: 0.25em;
+    width: 0.35cap;
+    height: 0.25em;
+    height: 0.35cap;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.4);
+    /* Half the cap height, less half the dot, so the centre lands on the cap-height
+       midline. Written out rather than as calc(), which postcss-calc cannot parse
+       with cap units. */
+    vertical-align: 0.23em;
+    vertical-align: 0.325cap;
   }
 }
 
+@layer utilities {
+  /* CRT scanlines. Contextual texture rather than a decorative dot grid. */
+  .scanlines::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background-image: repeating-linear-gradient(
+      to bottom,
+      rgba(255, 255, 255, 0.025) 0px,
+      rgba(255, 255, 255, 0.025) 1px,
+      transparent 1px,
+      transparent 3px
+    );
+  }
+
+  /* Film grain, kept faint so it reads as texture rather than noise. */
+  .grain::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0.16;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.5'/%3E%3C/svg%3E");
+  }
+
+  /* Phosphor bloom behind the hero, so the green looks emitted rather than filled. */
+  .bloom::before {
+    content: '';
+    position: absolute;
+    left: 30%;
+    top: 6%;
+    width: 52rem;
+    height: 30rem;
+    transform: translateX(-50%);
+    pointer-events: none;
+    background: radial-gradient(
+      ellipse at center,
+      rgba(64, 122, 214, 0.30) 0%,
+      rgba(64, 122, 214, 0.10) 42%,
+      transparent 70%
+    );
+    filter: blur(12px);
+  }
+
+  /*
+    Screened blue field. Horizontal rules on a deep navy, masked so they fade
+    toward the centre rather than tiling edge to edge like wallpaper. The blue is
+    a cool counterpoint to the green accent and keeps the CRT reading.
+  */
+  .striped {
+    background-color: var(--surface-blue);
+    position: relative;
+  }
+  .striped::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background-image: repeating-linear-gradient(
+      180deg,
+      rgba(148, 190, 255, 0.028) 0px,
+      rgba(148, 190, 255, 0.028) 1px,
+      transparent 1px,
+      transparent 9px
+    );
+    -webkit-mask-image: linear-gradient(180deg, #000 0%, rgba(0, 0, 0, 0.22) 45%, #000 100%);
+    mask-image: linear-gradient(180deg, #000 0%, rgba(0, 0, 0, 0.22) 45%, #000 100%);
+  }
+  /* A single wide glow keeps the field from reading flat under the stripes. */
+  .striped::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: radial-gradient(
+      120% 80% at 50% 0%,
+      rgba(74, 222, 128, 0.06) 0%,
+      transparent 60%
+    );
+  }
+
+  .caret::after {
+    content: '';
+    display: inline-block;
+    width: 0.55em;
+    /* Match the cap height of the surrounding text. An empty inline-block puts its
+       bottom margin edge on the baseline, so 1cap spans baseline to cap exactly.
+       The em value covers browsers without the cap unit. */
+    height: 0.72em;
+    height: 1cap;
+    margin-left: 0.14em;
+    background: var(--phosphor);
+    animation: blink 1.15s steps(1) infinite;
+  }
+
+  @keyframes blink {
+    0%, 50% { opacity: 1; }
+    50.01%, 100% { opacity: 0; }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .caret::after { animation: none; }
+  .card-hover:hover { transform: none; }
+}
