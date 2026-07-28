@@ -10,6 +10,8 @@ An AI-powered code review CLI tool that provides code analysis with advanced fea
 - **Gemini Integration**: Google's Gemini models for enhanced code analysis
 - **Intelligent Fallbacks**: Automatically switches models if one fails or hits rate limits
 - **Token Estimation**: Pre-calculates token usage and costs before API calls
+- **Schema-Constrained Output**: Every provider returns findings against one shared
+  schema, so results are the same shape whichever model produced them
 
 ### 🎯 **Comprehensive Review Templates**
 - **Quality**: Code organization, naming, duplication, complexity, error handling
@@ -45,6 +47,9 @@ An AI-powered code review CLI tool that provides code analysis with advanced fea
 - [Bun](https://bun.sh) installed
 - **For Claude**: Claude Code CLI (recommended) OR Anthropic API key
 - **For Gemini**: Google AI Studio API key (optional but recommended)
+
+Copy `.env.example` to `.env` and fill in whichever keys you have. `.env` is
+gitignored and Bun loads it automatically.
 
 ### Quick Start
 
@@ -192,21 +197,21 @@ code-review --status
 
 🔹 Claude Models (Anthropic)
 ----------------------------------------
-✅ Claude 3.5 Sonnet
+✅ Claude Sonnet 5
    Status: Ready for use
    Usage: 2/5 requests/min, 1,234/40,000 tokens/min
    Daily: 45/1000 requests
-   Cost: $3/$15 per 1K tokens
+   Cost: $3/$15 per 1M tokens
 
-⏰ Claude 3.5 Haiku
+⏰ Claude Haiku 4.5
    Status: Rate limited
    Usage: 5/5 requests/min, 45,000/50,000 tokens/min
    Next available: 23s
-   Cost: $0.25/$1.25 per 1K tokens
+   Cost: $1/$5 per 1M tokens
 
 🔸 Gemini Models (Google)
 ----------------------------------------
-✅ Gemini 1.5 Flash
+✅ Gemini Flash Lite (latest)
    Status: Ready for use
    Usage: 3/15 requests/min, 12,450/1,000,000 tokens/min
    Daily: 234/1500 requests
@@ -223,7 +228,7 @@ code-review --status
    📊 Claude Code: No usage dashboard (subscription-based)
 
 💡 Recommendations:
-   💡 Use free models: Gemini 1.5 Flash
+   💡 Use free models: Gemini Flash Lite (latest)
    ⏰ Rate limits reset in 23s
    📊 Note: Rate limits may be lower due to external API usage
 ================================================================================
@@ -532,13 +537,94 @@ Perfect for sharing with team, GitHub issues, or documentation.
 ```bash  
 code-review --output json --output-file results.json ./src
 ```
-Structured data for CI/CD pipelines and programmatic processing.
+Structured findings for CI/CD pipelines and programmatic processing. Each finding
+carries a severity, a category, a line number, a title, a description and a
+suggested fix:
+
+```json
+{
+  "filePath": "src/api/users.ts",
+  "hasIssues": true,
+  "findings": [
+    {
+      "severity": "critical",
+      "category": "security",
+      "line": 13,
+      "title": "SQL injection",
+      "description": "User input is concatenated directly into the query string.",
+      "suggestedFix": "Use a parameterised query."
+    }
+  ],
+  "summary": "One critical issue.",
+  "error": null
+}
+```
+
+`hasIssues` has three states. `true` and `false` are verdicts; `null` means the
+review failed and no verdict was reached, in which case `error` explains why and
+`findings` is `null`. A failed review is never reported as clean.
 
 ### HTML Reports
 ```bash
 code-review --output html --output-file report.html ./src  
 ```
 Professional reports with styling, charts, and interactive elements.
+
+The terminal, markdown and HTML formats currently render the review as prose. Only
+`--output json` exposes the findings as data.
+
+## 🔒 Structured Output
+
+Reviews are constrained to a schema rather than parsed out of prose. One zod
+definition in `src/core/review-schema.ts` produces the TypeScript type, the JSON
+Schema sent to each provider, and the runtime validator that checks what comes back.
+
+The three transports reach that schema by different mechanisms:
+
+| Transport | Mechanism |
+|---|---|
+| Anthropic API | a single `submit_review` tool, forced with `tool_choice` |
+| Claude Code CLI | `claude --print --json-schema` |
+| Gemini | `generationConfig.responseSchema` with `responseMimeType: application/json` |
+
+`normalizeReviewResponse` is where they converge. Every path funnels its payload
+through it, so a caller receives the same `StructuredReview` regardless of which
+provider produced it, and `--output json` emits the same shape either way.
+
+### Why two schema adapters
+
+The canonical JSON Schema is not accepted verbatim by either provider, so
+`toAnthropicSchema` and `toGeminiSchema` translate it:
+
+| Construct | zod emits | Anthropic | Gemini |
+|---|---|---|---|
+| `.nullable()` | `anyOf: [T, null]` | accepted | collapsed to `{...T, nullable: true}` |
+| `.int()` | `minimum`/`maximum` | stripped | stripped |
+| object | `additionalProperties: false` | accepted | stripped |
+| `z.enum` | `{type: "string", enum}` | accepted | needs `format: "enum"` |
+
+Gemini's `Schema` type has no union node at all, which is why a nullable field has
+to collapse onto its inner type and why per-category finding shapes are not
+possible. `toGeminiSchema` throws on any node it cannot represent, so a change to
+the zod schema fails at module load with the offending construct named, rather than
+as an opaque provider 400 at request time.
+
+### When the schema is not met
+
+Validation failing is a normal outcome, not a crash. Three cases are distinguished
+because only some of them are worth retrying:
+
+- **Truncation** (`stop_reason: max_tokens`, or Gemini's `finishReason`) reports the
+  token count and tells you to raise `CODE_REVIEW_MAX_TOKENS`. It is not retried on
+  another model, because the cap does not change when the model does.
+- **Transport failure** throws, so the existing model-fallback chain still fires.
+- **Schema violation** keeps the raw payload in the review text. One malformed field
+  fails the whole object, and the findings are still worth reading.
+
+The Claude Code CLI path is structured too, at roughly six times the usage of a
+direct API call, since `claude --print` runs a full agentic session. Set
+`CODE_REVIEW_FORCE_API=1` to use the API instead. That is a cost and latency choice,
+not a capability one.
 
 ## 🛠 Development
 
@@ -548,6 +634,8 @@ Professional reports with styling, charts, and interactive elements.
 │   └── code-review.ts          # Main CLI entry point
 ├── src/
 │   ├── core/
+│   │   ├── review-schema.ts    # Shared schema, provider adapters, validator
+│   │   ├── claude-cli.ts       # Claude Code CLI transport
 │   │   ├── file-scanner.ts     # File discovery and filtering
 │   │   ├── reviewer.ts         # Single-model reviewer
 │   │   ├── multi-model-reviewer.ts  # Multi-model orchestration
@@ -576,6 +664,8 @@ Professional reports with styling, charts, and interactive elements.
 # Development
 bun run dev                     # Run in development mode
 bun run build                   # Build executable
+bun run typecheck               # Type-check without emitting
+bun test                        # Run the schema and adapter tests
 bun install                     # Install dependencies
 
 # Testing  
