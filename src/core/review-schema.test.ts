@@ -1,7 +1,9 @@
 import { describe, expect, test } from 'bun:test';
 import {
   anthropicInputSchema,
+  describeSchemaMismatch,
   geminiResponseSchema,
+  toGeminiSchema,
   normalizeReviewResponse,
   renderStructuredReviewAsText,
   type JsonSchemaNode,
@@ -128,6 +130,41 @@ describe('toGeminiSchema', () => {
 
   test('keeps required, which Gemini does support', () => {
     expect(geminiResponseSchema.required).toEqual(['findings', 'summary']);
+  });
+});
+
+describe('toGeminiSchema rejects what it cannot represent', () => {
+  test.each([
+    ['a $ref', { $ref: '#/$defs/Finding' }],
+    ['a non-nullable union', { anyOf: [{ type: 'string' }, { type: 'integer' }] }],
+    ['an untyped node', { description: 'no type' }],
+  ])('throws on %s rather than emitting {}', (_label, node) => {
+    expect(() => toGeminiSchema(node as JsonSchemaNode)).toThrow(/cannot represent/);
+  });
+
+  test('still accepts a nullable union, which it collapses', () => {
+    const out = toGeminiSchema({ anyOf: [{ type: 'string' }, { type: 'null' }] });
+    expect(out).toEqual({ type: 'string', nullable: true });
+  });
+});
+
+describe('describeSchemaMismatch', () => {
+  test('keeps the payload so findings are not lost to one bad field', () => {
+    const payload = { findings: [{ title: 'SQL injection' }], summary: 'one issue' };
+    const out = describeSchemaMismatch('Does not match the schema.', payload);
+    expect(out).toContain('Does not match the schema.');
+    expect(out).toContain('SQL injection');
+    expect(out).toContain('one issue');
+  });
+
+  test('returns the diagnostic alone when there is nothing to keep', () => {
+    expect(describeSchemaMismatch('diag', null)).toBe('diag');
+    expect(describeSchemaMismatch('diag', undefined)).toBe('diag');
+    expect(describeSchemaMismatch('diag', '   ')).toBe('diag');
+  });
+
+  test('passes a string payload through without re-encoding it', () => {
+    expect(describeSchemaMismatch('diag', '{"truncated": ')).toContain('{"truncated": ');
   });
 });
 

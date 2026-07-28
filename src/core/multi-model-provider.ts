@@ -7,6 +7,7 @@ import {
   geminiResponseSchema,
   normalizeReviewResponse,
   renderStructuredReviewAsText,
+  describeSchemaMismatch,
   SUBMIT_REVIEW_TOOL_NAME,
   STRUCTURED_OUTPUT_INSTRUCTION,
   type StructuredReview,
@@ -393,7 +394,9 @@ export class MultiModelProvider {
       const review = normalizeReviewResponse(toolUse.input);
       if (!review) {
         const error = `${model.model} returned a ${SUBMIT_REVIEW_TOOL_NAME} payload that does not match the review schema.`;
-        return { ...base, content: error, review: null, error };
+        // Keep the payload: one bad field fails the whole object, and the findings
+        // are still readable even when they cannot be trusted as structure.
+        return { ...base, content: describeSchemaMismatch(error, toolUse.input), review: null, error };
       }
 
       // Forced tool use means there is no text block to read. Rendering here keeps
@@ -443,7 +446,13 @@ export class MultiModelProvider {
 
       const review = normalizeReviewResponse(parseJsonOrNull(raw));
       if (!review) {
-        const error = `${model.model} returned a response that does not match the review schema.`;
+        // Truncation and schema violation both arrive as unparseable JSON here, but
+        // only one of them has a remedy the user can act on. The Anthropic path
+        // reads stop_reason for the same split; this is finishReason.
+        const truncated = response.candidates?.[0]?.finishReason === 'MAX_TOKENS';
+        const error = truncated
+          ? `Response truncated at ${base.tokensUsed.output} output tokens for ${model.model}. Raise CODE_REVIEW_MAX_TOKENS or review a smaller file.`
+          : `${model.model} returned a response that does not match the review schema.`;
         // Unlike the Anthropic path there is real text here, so keep it: malformed
         // JSON is still readable and more useful than the diagnostic alone.
         return { ...base, content: raw.trim() || error, review: null, error };

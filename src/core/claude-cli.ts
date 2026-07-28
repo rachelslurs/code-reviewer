@@ -29,6 +29,8 @@ export interface ClaudeCliResult {
    * reported instead.
    */
   transportFailed?: boolean;
+  /** Whatever came back when it failed validation, so callers can still show it. */
+  rawPayload?: unknown;
   /** Subscription budget consumed, in API-equivalent dollars. */
   costUsd: number;
   tokensUsed: { input: number; output: number };
@@ -68,7 +70,22 @@ function parseJsonOrNull(text: string): unknown {
  * it, mentioning "authentication/authorization", and the probe read its own prompt
  * echoed back as an auth failure.
  */
-export function probeClaudeCodeAuth(): boolean {
+export type ClaudeCliStatus = 'ready' | 'errored' | 'unavailable';
+
+/**
+ * Whether the Claude Code CLI is installed and usable.
+ *
+ * Three states, not two. A parseable envelope means the CLI ran, so `errored`
+ * covers a session that started and then failed for a reason of its own, such as a
+ * usage limit. Collapsing that into "unauthenticated" tells a rate-limited user to
+ * run `claude setup-token`, which does not help and is not true.
+ *
+ * Reads the envelope rather than scanning the reply text. The previous substring
+ * check asked the model "auth test" and looked for the word "authentication" in the
+ * answer; the model would reply asking what was meant by it, mentioning
+ * "authentication/authorization", and the probe read that as an auth failure.
+ */
+export function probeClaudeCodeCli(): { status: ClaudeCliStatus; detail?: string } {
   const promptFile = join(tmpdir(), `code-review-auth-${Date.now()}.txt`);
   try {
     // Same shell-pipe form as the review call. execSync's `input` option makes the
@@ -79,12 +96,27 @@ export function probeClaudeCodeAuth(): boolean {
       { encoding: 'utf8', stdio: 'pipe', timeout: 60000, shell: '/bin/sh' },
     );
     const envelope = parseJsonOrNull(raw) as CliEnvelope | null;
-    return envelope !== null && envelope.is_error !== true;
-  } catch {
-    return false;
+    if (envelope === null) return { status: 'unavailable', detail: 'CLI returned output that is not JSON' };
+    if (envelope.is_error) return { status: 'errored', detail: envelope.subtype ?? 'unknown error' };
+    return { status: 'ready' };
+  } catch (error) {
+    const stdout = String((error as { stdout?: unknown }).stdout ?? '');
+    const envelope = parseJsonOrNull(stdout) as CliEnvelope | null;
+    // A JSON envelope on a non-zero exit still proves the CLI is installed and ran.
+    if (envelope !== null) return { status: 'errored', detail: envelope.subtype ?? 'unknown error' };
+    return { status: 'unavailable', detail: error instanceof Error ? error.message : String(error) };
   } finally {
     try { unlinkSync(promptFile); } catch { /* best effort */ }
   }
+}
+
+/** Back-compatible boolean: an errored-but-present CLI is still worth attempting. */
+export function probeClaudeCodeAuth(): boolean {
+  const { status, detail } = probeClaudeCodeCli();
+  if (status === 'errored') {
+    console.warn(`⚠️  Claude Code CLI responded with an error (${detail}). Attempting it anyway; the real message will surface on the first review.`);
+  }
+  return status !== 'unavailable';
 }
 
 export function reviewViaClaudeCli(
@@ -170,6 +202,7 @@ export function reviewViaClaudeCli(
     return {
       review: null,
       error: 'Claude CLI returned a payload that does not match the review schema.',
+      rawPayload: candidate,
       costUsd,
       tokensUsed,
     };

@@ -116,6 +116,21 @@ export function toGeminiSchema(node: JsonSchemaNode): JsonSchemaNode {
   }
   if (node.items !== undefined) out.items = toGeminiSchema(node.items);
 
+  // An allow-list silently drops what it does not recognise, which would serialize
+  // the node as `{}` and surface much later as an opaque Gemini 400 reported as
+  // "All suitable models failed". Failing here names the offending construct
+  // instead, at module load, before any request is built.
+  if (out.type === undefined && out.nullable === undefined) {
+    const unsupported = Object.keys(node).filter(
+      (key) => !['type', 'description', 'nullable', 'required', 'enum', 'properties', 'items'].includes(key),
+    );
+    throw new Error(
+      `toGeminiSchema cannot represent this node: Gemini's Schema type has no ` +
+        `equivalent for ${unsupported.length > 0 ? unsupported.join(', ') : 'an untyped node'}. ` +
+        `Change the zod schema, or extend the adapter.`,
+    );
+  }
+
   return out;
 }
 
@@ -140,6 +155,31 @@ export const STRUCTURED_OUTPUT_INSTRUCTION =
 export function normalizeReviewResponse(raw: unknown): StructuredReview | null {
   const parsed = StructuredReviewSchema.safeParse(raw);
   return parsed.success ? parsed.data : null;
+}
+
+/**
+ * Failure text for a payload that arrived but did not validate.
+ *
+ * One bad field fails the whole object, so discarding it throws away every finding
+ * the user paid for. The raw payload is appended so the review is still readable
+ * even when it cannot be trusted as structure.
+ */
+export function describeSchemaMismatch(diagnostic: string, payload: unknown): string {
+  if (payload === undefined || payload === null) return diagnostic;
+
+  let rendered: string;
+  if (typeof payload === 'string') {
+    rendered = payload;
+  } else {
+    try {
+      rendered = JSON.stringify(payload, null, 2);
+    } catch {
+      return diagnostic;
+    }
+  }
+
+  if (rendered.trim() === '') return diagnostic;
+  return `${diagnostic}\n\nRaw response (unvalidated):\n\n${rendered}`;
 }
 
 /**
