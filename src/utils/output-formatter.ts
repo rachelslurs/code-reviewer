@@ -1,4 +1,4 @@
-import { ReviewResult, formatIssueStatus } from '../core/reviewer.js';
+import { ReviewResult, formatIssueStatus, summarizeVerdicts } from '../core/reviewer.js';
 import { writeFileSync } from 'fs';
 import { join } from 'path';
 
@@ -49,9 +49,8 @@ export class OutputFormatter {
 
   private static formatMarkdown(results: ReviewResult[], options: OutputOptions): string {
     const timestamp = new Date().toISOString();
-    const totalFiles = results.length;
-    const filesWithIssues = results.filter(r => r.hasIssues === true).length;
-    const filesFailed = results.filter(r => r.hasIssues === null).length;
+    const { total: totalFiles, withIssues: filesWithIssues, failed: filesFailed } =
+      summarizeVerdicts(results);
     const totalTokens = results.reduce((sum, r) => sum + r.tokensUsed.input + r.tokensUsed.output, 0);
 
     let markdown = `# Code Review Report
@@ -97,14 +96,14 @@ export class OutputFormatter {
   }
 
   private static formatJSON(results: ReviewResult[], options: OutputOptions): string {
+    const verdicts = summarizeVerdicts(results);
     const reportData = {
       metadata: {
         generatedAt: new Date().toISOString(),
-        totalFiles: results.length,
-        filesWithIssues: results.filter(r => r.hasIssues === true).length,
-        // A file whose review failed is neither clean nor issue-bearing, so it is
-        // counted on its own rather than folded into either.
-        filesFailed: results.filter(r => r.hasIssues === null).length,
+        totalFiles: verdicts.total,
+        filesWithIssues: verdicts.withIssues,
+        // A file whose review failed is neither clean nor issue-bearing.
+        filesFailed: verdicts.failed,
         totalTokensUsed: results.reduce((sum, r) => sum + r.tokensUsed.input + r.tokensUsed.output, 0),
         templates: [...new Set(results.map(r => r.template))]
       },
@@ -132,9 +131,8 @@ export class OutputFormatter {
 
   private static formatHTML(results: ReviewResult[], options: OutputOptions): string {
     const timestamp = new Date().toLocaleString();
-    const totalFiles = results.length;
-    const filesWithIssues = results.filter(r => r.hasIssues === true).length;
-    const filesFailed = results.filter(r => r.hasIssues === null).length;
+    const { total: totalFiles, withIssues: filesWithIssues, failed: filesFailed } =
+      summarizeVerdicts(results);
     const totalTokens = results.reduce((sum, r) => sum + r.tokensUsed.input + r.tokensUsed.output, 0);
 
     let html = `<!DOCTYPE html>
@@ -258,10 +256,8 @@ export class OutputFormatter {
   }
 
   private static calculateIssueDistribution(results: ReviewResult[]) {
-    const totalFiles = results.length;
-    const filesWithIssues = results.filter(r => r.hasIssues === true).length;
-    // A truthiness filter would count a failed review as clean here.
-    const filesFailed = results.filter(r => r.hasIssues === null).length;
+    const { total: totalFiles, withIssues: filesWithIssues, failed: filesFailed } =
+      summarizeVerdicts(results);
     const reviewed = totalFiles - filesFailed;
 
     return {

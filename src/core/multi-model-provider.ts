@@ -1,7 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { GoogleGenerativeAI, type ResponseSchema } from '@google/generative-ai';
 import { TokenEstimator, resolveMaxTokens } from '../utils/token-estimator.js';
-import { reviewViaClaudeCli } from './claude-cli.js';
+import { reviewViaClaudeCli, cliModelAlias } from './claude-cli.js';
 import {
   anthropicInputSchema,
   geminiResponseSchema,
@@ -332,7 +332,7 @@ export class MultiModelProvider {
       // as forced tool use, so this is structured too, at roughly six times the
       // usage budget of a direct API call.
       const prompt = `${request.systemPrompt}\n\n${STRUCTURED_OUTPUT_INSTRUCTION}\n\nFile: ${request.filename}\n\nCode:\n${request.code}`;
-      const cliModel = modelKey === 'claude-haiku' ? 'haiku' : 'sonnet';
+      const cliModel = cliModelAlias(modelKey);
       const cli = reviewViaClaudeCli(prompt, cliModel, this.config.timeout);
 
       const base = {
@@ -355,7 +355,10 @@ export class MultiModelProvider {
 
       if (!cli.review) {
         const error = cli.error ?? 'Claude CLI returned no review.';
-        return { ...base, content: error, review: null, error };
+        // rawPayload carries the findings that failed validation. Dropping it here
+        // discarded every finding the call was billed for, on the one branch that
+        // had it, while reviewer.ts surfaced it from the same data.
+        return { ...base, content: describeSchemaMismatch(error, cli.rawPayload), review: null, error };
       }
 
       return { ...base, content: renderStructuredReviewAsText(cli.review), review: cli.review };

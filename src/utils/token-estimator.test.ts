@@ -34,4 +34,18 @@ describe('resolveMaxTokens', () => {
   ])('ignores %s and falls back', (_label, value) => {
     expect(withEnv(value, () => resolveMaxTokens('claude-sonnet'))).toBe(16000);
   });
+
+  // Sonnet's own cap is 128000, so a value between the non-streaming ceiling and
+  // the model cap used to pass validation and be returned unclamped, producing the
+  // SDK timeout the ceiling exists to prevent.
+  test.each(['16001', '64000', '128000'])(
+    'rejects %s, which is under the model cap but over the non-streaming ceiling',
+    value => {
+      expect(withEnv(value, () => resolveMaxTokens('claude-sonnet'))).toBe(16000);
+    },
+  );
+
+  test('still accepts the ceiling itself', () => {
+    expect(withEnv('16000', () => resolveMaxTokens('claude-sonnet'))).toBe(16000);
+  });
 });

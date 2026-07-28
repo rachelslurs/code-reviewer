@@ -7,7 +7,7 @@ import { ReviewTemplate } from '../templates/quality.js';
 import { CacheManager } from '../utils/cache-manager.js';
 import { ModelStatusChecker } from '../utils/model-status-checker.js';
 import { resolveMaxTokens } from '../utils/token-estimator.js';
-import { reviewViaClaudeCli, probeClaudeCodeAuth } from './claude-cli.js';
+import { reviewViaClaudeCli, probeClaudeCodeAuth, cliModelAlias } from './claude-cli.js';
 import { AVAILABLE_MODELS } from './multi-model-provider.js';
 import {
   anthropicInputSchema,
@@ -47,20 +47,55 @@ export function formatIssueStatus(hasIssues: boolean | null): string {
   return hasIssues ? '🔍 Issues found' : '✅ Clean';
 }
 
+export interface VerdictCounts {
+  total: number;
+  withIssues: number;
+  /** Reviews that never reached a verdict. Excluded from `clean`, not folded in. */
+  failed: number;
+  clean: number;
+}
+
+/**
+ * Counts the three verdict states in one place.
+ *
+ * The same three lines were copy-pasted into six call sites across three files,
+ * and four of them had the null case wrong before it was fixed one site at a time.
+ * A seventh site now inherits the null handling instead of having to remember it.
+ */
+export function summarizeVerdicts(results: Array<{ hasIssues: boolean | null }>): VerdictCounts {
+  const total = results.length;
+  const withIssues = results.filter(r => r.hasIssues === true).length;
+  const failed = results.filter(r => r.hasIssues === null).length;
+  return { total, withIssues, failed, clean: total - withIssues - failed };
+}
+
 export class CodeReviewer {
   private anthropic?: Anthropic;
   private tokenTracker: TokenTracker;
   private useClaudeCode: boolean;
   private cacheManager: CacheManager;
   private statusChecker: ModelStatusChecker;
+  /** Key into AVAILABLE_MODELS. Without this --model never reached the request. */
+  private modelKey: string;
 
   constructor(
     apiKey?: string,
     forceClaudeCode?: boolean,
     enableCache: boolean = true,
-    /** Key into AVAILABLE_MODELS. Without this --model never reached the request. */
-    private modelKey: string = 'claude-sonnet',
+    modelKey: string = 'claude-sonnet',
   ) {
+    // Nothing validates --model against AVAILABLE_MODELS upstream; only the
+    // claude-/gemini- prefix is checked. An unrecognised key used to substitute
+    // Sonnet's model id while still asking resolveMaxTokens about the bad key,
+    // which missed MODEL_LIMITS and capped every review at 4000 tokens. Resolving
+    // once here keeps the id, the token cap and the usage bucket on one key.
+    if (AVAILABLE_MODELS[modelKey]) {
+      this.modelKey = modelKey;
+    } else {
+      console.warn(`⚠️  Unknown model '${modelKey}'. Falling back to claude-sonnet.`);
+      this.modelKey = 'claude-sonnet';
+    }
+
     this.tokenTracker = new TokenTracker();
     this.cacheManager = enableCache ? new CacheManager() : null as any;
     this.statusChecker = new ModelStatusChecker();
@@ -110,9 +145,12 @@ export class CodeReviewer {
     try {
       // Subscription path: --json-schema reaches the same schema as forced tool
       // use, so this returns structured findings rather than free text.
+      // Derived from modelKey rather than hardcoded. Pinning 'sonnet' meant
+      // --model claude-haiku ran Sonnet at Sonnet cost while recording that token
+      // count against haiku's bucket below, so --status throttled the wrong model.
       const cli = reviewViaClaudeCli(
         `${fullPrompt}\n\n${STRUCTURED_OUTPUT_INSTRUCTION}`,
-        'sonnet',
+        cliModelAlias(this.modelKey),
         120000
       );
 
@@ -168,7 +206,7 @@ export class CodeReviewer {
 
     try {
       const response = await this.anthropic!.messages.create({
-        model: AVAILABLE_MODELS[this.modelKey]?.model ?? AVAILABLE_MODELS['claude-sonnet'].model,
+        model: AVAILABLE_MODELS[this.modelKey].model,
         max_tokens: resolveMaxTokens(this.modelKey),
         system: `${template.systemPrompt}\n\n${STRUCTURED_OUTPUT_INSTRUCTION}`,
         tools: [{
@@ -425,19 +463,15 @@ Please provide a thorough code review focusing on the areas mentioned in your in
   }
 
   printReviewSummary(results: ReviewResult[]): void {
-    const totalFiles = results.length;
-    const filesWithIssues = results.filter(r => r.hasIssues === true).length;
-    // Counted separately rather than folded into "clean", which is what a plain
-    // truthiness filter would do to a review that never produced a verdict.
-    const filesFailed = results.filter(r => r.hasIssues === null).length;
+    const verdicts = summarizeVerdicts(results);
     const totalTokens = results.reduce((sum, r) => sum + r.tokensUsed.input + r.tokensUsed.output, 0);
 
     console.log(`\n📋 Review Summary:`);
-    console.log(`   Files reviewed: ${totalFiles}`);
-    console.log(`   Files with issues: ${filesWithIssues}`);
-    console.log(`   Files clean: ${totalFiles - filesWithIssues - filesFailed}`);
-    if (filesFailed > 0) {
-      console.log(`   Files that failed to review: ${filesFailed}`);
+    console.log(`   Files reviewed: ${verdicts.total}`);
+    console.log(`   Files with issues: ${verdicts.withIssues}`);
+    console.log(`   Files clean: ${verdicts.clean}`);
+    if (verdicts.failed > 0) {
+      console.log(`   Files that failed to review: ${verdicts.failed}`);
     }
     console.log(`   Total tokens used: ${totalTokens.toLocaleString()}`);
     console.log(`   Authentication method: ${this.useClaudeCode ? '✅ Claude Code' : '🔑 API Key'}`);
