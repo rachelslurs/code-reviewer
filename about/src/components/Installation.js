@@ -1,7 +1,6 @@
-import React, { useState } from 'react';
+import React from 'react';
 
 const Installation = () => {
-  const [prerequisitesOpen, setPrerequisitesOpen] = useState(false);
 
   const installationSteps = {
     quick: [
@@ -66,75 +65,56 @@ const Installation = () => {
   ];
 
   return (
-    <section id="installation" className="py-24 bg-gray-200">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <section id="installation" className="relative py-24 seam-top" style={{ background: 'var(--surface-lit)' }}>
+      <div className="max-w-6xl mx-auto px-6 lg:px-8">
         {/* Section Header */}
-        <div className="text-center mb-12">
-          <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold text-gray-900 mb-6">
-            Installation
-          </h2>
+        <div className="mb-12">
+          <div className="flex items-center gap-4 mb-4">
+            <h2 className="text-3xl sm:text-4xl font-bold text-zinc-900">
+              Installation
+            </h2>
+            <span className="rule-lit flex-1"></span>
+          </div>
         </div>
 
-        {/* Prerequisites - Collapsible */}
+        {/* Prerequisites. Four short links, so they read as one row rather than a stack. */}
         <div className="mb-8">
-          <button
-            onClick={() => setPrerequisitesOpen(!prerequisitesOpen)}
-            className="w-full text-left flex items-center justify-between transition-colors duration-200 px-2 py-2 rounded font-bungee"
-          >
-            <h3 className="text-lg font-medium text-gray-700">
-              Prerequisites
-            </h3>
-            <svg
-              className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${
-                prerequisitesOpen ? 'rotate-180' : ''
-              }`}
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-            </svg>
-          </button>
-          
-          {prerequisitesOpen && (
-            <div className="mt-4">
-              <ul className="space-y-2">
-                {requirements.map((req, index) => (
-                  <li key={index} className="flex items-center space-x-3">
-                    <svg className="w-5 h-5 text-primary-700 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                    </svg>
-                    <a
-                      href={req.link}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      title={`${req.name} - ${req.description}`}
-                      className="text-primary-700 hover:text-primary-900 font-medium"
-                    >
-                      {req.name}
-                    </a>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
+          <h3 className="font-bungee text-sm text-zinc-700 mb-3">Prerequisites</h3>
+          <ul className="flex flex-wrap items-center gap-x-5 gap-y-2">
+            {requirements.map((req, index) => (
+              <li key={index} className="flex items-center gap-1.5">
+                <svg className="w-3.5 h-3.5 text-secondary-700 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                </svg>
+                <a
+                  href={req.link}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title={`${req.name} - ${req.description}`}
+                  className="text-sm text-secondary-700 hover:text-secondary-900 font-medium"
+                >
+                  {req.name}
+                </a>
+              </li>
+            ))}
+          </ul>
         </div>
 
         {/* Installation Steps */}
         <div className="space-y-6">
           {installationSteps.quick.map((step, index) => (
-            <div key={index} className="bg-white rounded-2xl p-8 shadow-sm border border-gray-100">
+            <div key={index} className="panel-lit rounded-2xl p-8 shadow-sm border border-gray-100">
               <div className="flex items-start space-x-6">
                 <div className="flex-shrink-0">
-                  <div className="w-12 h-12 bg-primary-100 rounded-full flex items-center justify-center">
-                    <span className="text-primary-600 text-lg font-bungee">{step.step}</span>
+                  <div className="w-12 h-12 bg-secondary-100 rounded-full flex items-center justify-center">
+                    <span className="text-secondary-800 text-lg font-bungee">{step.step}</span>
                   </div>
                 </div>
                 <div className="flex-1">
-                  <h3 className="text-lg font-bungee tracking-tight text-gray-900 mb-2">
+                  <h3 className="text-lg font-bungee tracking-tight text-zinc-900 mb-2">
                     {step.title}
                   </h3>
-                  <p className="text-gray-600 mb-4">
+                  <p className="text-zinc-600 mb-4">
                     {step.description}
                   </p>
                   <div className="bg-gray-900 rounded-lg p-4 overflow-x-auto">
