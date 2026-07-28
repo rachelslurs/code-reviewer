@@ -33,6 +33,46 @@ const Demo = () => {
 💰 Cost: Free (Gemini Flash)`
     },
     {
+      id: 'structured',
+      title: 'Structured Output',
+      description: 'Findings as data, identical shape from every model',
+      command: 'code-review --template security --output json ./src',
+      output: `{
+  "metadata": {
+    "totalFiles": 1,
+    "filesWithIssues": 1,
+    "filesFailed": 0,
+    "totalTokensUsed": 4983
+  },
+  "results": [
+    {
+      "filePath": "api/users.ts",
+      "hasIssues": true,
+      "findings": [
+        {
+          "severity": "critical",
+          "category": "security",
+          "line": 13,
+          "title": "SQL Injection via string concatenation",
+          "description": "User input is concatenated directly into the query.",
+          "suggestedFix": "Use a parameterised query."
+        },
+        {
+          "severity": "high",
+          "category": "security",
+          "line": 22,
+          "title": "Reflected XSS via unsanitized route parameter",
+          "description": "The route parameter is interpolated into an HTML response.",
+          "suggestedFix": "Escape the value before rendering."
+        }
+      ],
+      "summary": "Two issues, one critical.",
+      "error": null
+    }
+  ]
+}`
+    },
+    {
       id: 'multi-model',
       title: 'Multi-Model Review',
       description: 'Smart model selection with automatic fallbacks',
