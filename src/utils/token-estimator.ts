@@ -49,8 +49,8 @@ export const MODEL_LIMITS: Record<string, ModelLimits> = {
     }
   },
   'gemini-pro': {
-    maxInputTokens: 2000000,
-    maxOutputTokens: 8192,
+    maxInputTokens: 1048576,
+    maxOutputTokens: 65536,
     rateLimit: {
       requestsPerMinute: 2,     // Very restrictive free tier
       tokensPerMinute: 32000,
@@ -62,8 +62,8 @@ export const MODEL_LIMITS: Record<string, ModelLimits> = {
     }
   },
   'gemini-flash': {
-    maxInputTokens: 1000000,
-    maxOutputTokens: 8192,
+    maxInputTokens: 1048576,
+    maxOutputTokens: 65536,
     rateLimit: {
       requestsPerMinute: 15,    // Much more generous
       tokensPerMinute: 1000000,

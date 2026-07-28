@@ -84,14 +84,14 @@ export const AVAILABLE_MODELS: Record<string, ModelProvider> = {
   },
   'gemini-pro': {
     name: 'Gemini Pro',
-    model: 'gemini-1.5-pro',
+    model: 'gemini-2.5-pro',
     strengths: ['Individual file analysis', 'Performance optimization', 'Bug detection', 'Detailed code review'],
     costTier: 'medium',
     speedTier: 'medium'
   },
   'gemini-flash': {
     name: 'Gemini Flash',
-    model: 'gemini-1.5-flash',
+    model: 'gemini-2.5-flash',
     strengths: ['Fast reviews', 'Code quality', 'Pattern detection'],
     costTier: 'low',
     speedTier: 'fast'
