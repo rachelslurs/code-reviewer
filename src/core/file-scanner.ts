@@ -1,5 +1,5 @@
 import { readFileSync, statSync, readdirSync } from 'fs';
-import { join, relative, extname } from 'path';
+import { join, relative, extname, dirname } from 'path';
 import { CodeReviewConfig } from '../utils/config.js';
 
 export interface FileInfo {
@@ -27,7 +27,10 @@ export class FileScanner {
     const skippedFiles: string[] = [];
 
     if (stat.isFile()) {
-      const result = this.processFile(targetPath, targetPath);
+      // rootPath must be the containing directory. Passing the file as its own
+      // root makes relative(root, file) return '', so the review is sent with no
+      // filename at all.
+      const result = this.processFile(targetPath, dirname(targetPath));
       if (result) {
         files.push(result);
       } else {
