@@ -24,7 +24,8 @@ export type StructuredReview = z.infer<typeof StructuredReviewSchema>;
 
 export type Severity = ReviewFinding['severity'];
 
-const SEVERITY_ORDER: readonly Severity[] = ['critical', 'high', 'medium', 'low'];
+/** Most severe first. Index order is the ranking, so callers can compare positions. */
+export const SEVERITY_ORDER: readonly Severity[] = ['critical', 'high', 'medium', 'low'];
 
 /**
  * The subset of JSON Schema that zod emits for the schema above, plus the two fields
