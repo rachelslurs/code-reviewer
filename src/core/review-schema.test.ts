@@ -60,10 +60,45 @@ describe('normalizeReviewResponse', () => {
     ['undefined root', undefined],
     ['a bare string', 'not a review'],
     ['missing findings', { summary: 'x' }],
-    ['missing summary', { findings: [] }],
     ['findings not an array', { findings: {}, summary: 'x' }],
   ])('returns null for %s', (_label, input) => {
     expect(normalizeReviewResponse(input)).toBeNull();
+  });
+
+  // On a file that produces twenty findings the model reliably stops before writing
+  // the summary. Discarding the review threw away every finding the run paid for.
+  describe('a payload missing only the summary', () => {
+    test('keeps the findings', () => {
+      const finding = VALID.findings[0];
+      const salvaged = normalizeReviewResponse({ findings: [finding] });
+      expect(salvaged?.findings).toEqual([finding]);
+    });
+
+    test('stands in a summary describing what was found', () => {
+      const low = { ...VALID.findings[0], severity: 'low' as const };
+      const high = { ...VALID.findings[0], severity: 'high' as const };
+      const salvaged = normalizeReviewResponse({ findings: [high, low, low] });
+      expect(salvaged?.summary).toBe('3 finding(s): 1 high, 2 low.');
+    });
+
+    test('reads an empty findings array as clean', () => {
+      expect(normalizeReviewResponse({ findings: [] })).toEqual({
+        findings: [],
+        summary: 'No issues found.',
+      });
+    });
+
+    test('never overwrites a summary the model did send', () => {
+      const sent = { findings: [], summary: 'the model wrote this' };
+      expect(normalizeReviewResponse(sent)?.summary).toBe('the model wrote this');
+    });
+
+    // Salvage covers the summary alone. A bad finding still fails the whole payload,
+    // because a finding is data the gate has to trust.
+    test('still rejects a payload whose findings are wrong', () => {
+      const bad = { ...VALID.findings[0], severity: 'blocker' };
+      expect(normalizeReviewResponse({ findings: [bad] })).toBeNull();
+    });
   });
 
   test.each([

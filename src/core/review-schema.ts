@@ -152,14 +152,41 @@ export const STRUCTURED_OUTPUT_INSTRUCTION =
   'Set `line` to the line number the finding occurs on, counting from 1. Use null ' +
   'only when the finding is about the file as a whole rather than any specific line.';
 
+/** Stands in for a summary the model did not send. */
+export function describeFindings(findings: readonly ReviewFinding[]): string {
+  if (findings.length === 0) return 'No issues found.';
+  const counts = SEVERITY_ORDER
+    .map(severity => ({ severity, n: findings.filter(f => f.severity === severity).length }))
+    .filter(entry => entry.n > 0)
+    .map(entry => `${entry.n} ${entry.severity}`)
+    .join(', ');
+  return `${findings.length} finding(s): ${counts}.`;
+}
+
+/** Everything except the summary, which is prose rather than data. */
+const FindingsOnlySchema = z.object({
+  findings: z.array(ReviewFindingSchema),
+});
+
 /**
  * The single point where a provider response becomes a review. Returning null is the
  * only signal that means "fall back to text", so a missing tool_use block, a
  * truncated body and a schema violation all converge on one branch.
+ *
+ * A payload whose findings validate is kept even when `summary` is absent. On a file
+ * that produces twenty findings the model reliably stops before writing the summary,
+ * and discarding the whole review over one missing prose field threw away every
+ * finding the run had already paid for. The summary is the one field that can be
+ * rebuilt from the rest.
  */
 export function normalizeReviewResponse(raw: unknown): StructuredReview | null {
   const parsed = StructuredReviewSchema.safeParse(raw);
-  return parsed.success ? parsed.data : null;
+  if (parsed.success) return parsed.data;
+
+  const salvaged = FindingsOnlySchema.safeParse(raw);
+  if (!salvaged.success) return null;
+
+  return { findings: salvaged.data.findings, summary: describeFindings(salvaged.data.findings) };
 }
 
 /**
