@@ -53,7 +53,7 @@ function report(results: ReviewReportResult[], templates = ['combined']): Review
   };
 }
 
-const CONTEXT: CommentContext = { exitCode: 0, threshold: 'critical' };
+const CONTEXT: CommentContext = { threshold: 'critical' };
 
 describe('renderPrComment', () => {
   test('always starts with the marker so a re-run can find it', () => {
@@ -137,43 +137,96 @@ describe('renderPrComment', () => {
     expect(out).toContain('1 file(s) reviewed');
   });
 
-  test('collapses medium and low, expands critical and high', () => {
+  test('groups findings into one collapsed block per file', () => {
     const rows = [row({
+      filePath: 'a.ts',
       hasIssues: true,
       findings: [finding('critical'), finding('high'), finding('medium'), finding('low')],
     })];
     const out = renderPrComment(report(rows), CONTEXT);
-    expect(out).toContain('### 🚨 critical (1)');
-    expect(out).toContain('### ⚠️ high (1)');
-    expect(out).toContain('<details><summary><strong>💡 medium (1)');
-    expect(out).toContain('<details><summary><strong>🔹 low (1)');
+    expect(out).toContain('<details><summary><code>a.ts</code> (1 critical, 1 high, 1 medium, 1 low)');
+    // Every finding gets a table row, whatever its severity.
+    expect(out).toContain('| 🚨 critical | 12 |');
+    expect(out).toContain('| 🔹 low | 12 |');
   });
 
-  test('omits sections with no findings', () => {
+  // A fifteen-file review produces enough findings that printing every description
+  // buries the ones worth acting on.
+  test('prints descriptions for critical and high only', () => {
+    const rows = [row({
+      filePath: 'a.ts',
+      hasIssues: true,
+      findings: [
+        { ...finding('critical'), description: 'CRITICAL DETAIL' },
+        { ...finding('low'), description: 'LOW DETAIL' },
+      ],
+    })];
+    const out = renderPrComment(report(rows), CONTEXT);
+    expect(out).toContain('CRITICAL DETAIL');
+    expect(out).not.toContain('LOW DETAIL');
+    // The low finding is still listed, just without its description.
+    expect(out).toContain('a low issue');
+  });
+
+  test('omits the counts table when there are no findings', () => {
     const out = renderPrComment(report([row()]), CONTEXT);
-    expect(out).not.toContain('### 🚨 critical');
-    expect(out).not.toContain('medium (');
+    expect(out).not.toContain('🚨 critical');
+    expect(out).not.toContain('<details>');
   });
 
-  test('renders a null line number without a location marker', () => {
+  test('marks a whole-file finding instead of printing a null line', () => {
     const bare = { ...finding('critical'), line: null };
     const out = renderPrComment(
       report([row({ filePath: 'a.ts', hasIssues: true, findings: [bare] })]),
       CONTEXT,
     );
-    expect(out).toContain('`a.ts`');
-    expect(out).not.toContain('a.ts:null');
+    expect(out).toContain('<code>a.ts</code>');
+    expect(out).toContain('| 🚨 critical | _file_ |');
+    expect(out).not.toContain('null');
+  });
+
+  // Model output is not ours: an unescaped </details> closes the block early and
+  // mangles everything after it.
+  test('escapes markup in finding text', () => {
+    const nasty = {
+      ...finding('critical', '</details><img src=x onerror=alert(1)>'),
+      description: 'closes <details> early',
+    };
+    const out = renderPrComment(
+      report([row({ hasIssues: true, findings: [nasty] })]),
+      CONTEXT,
+    );
+    expect(out).not.toContain('<img src=x');
+    expect(out).toContain('&lt;img src=x');
+    expect(out).toContain('&lt;/details&gt;');
+  });
+
+  test('escapes a pipe so it cannot break out of a table cell', () => {
+    const piped = finding('low', 'a | b | c');
+    const out = renderPrComment(
+      report([row({ hasIssues: true, findings: [piped] })]),
+      CONTEXT,
+    );
+    expect(out).toContain('a \\| b \\| c');
+  });
+
+  test('renders only a link it built itself', () => {
+    const out = renderPrComment(report([row()]), {
+      threshold: 'critical',
+      runUrl: 'javascript:alert(1)',
+    });
+    expect(out).not.toContain('<a href');
+    expect(out).not.toContain('javascript:');
   });
 
   test('a missing report renders the incomplete comment rather than throwing', () => {
-    const out = renderPrComment(null, { exitCode: 1, threshold: 'critical' });
+    const out = renderPrComment(null, { threshold: 'critical' });
     expect(out).toContain('did not complete');
     expect(out).toContain('threshold <code>critical</code>');
   });
 
   test('the footer carries the commit and run link when given', () => {
     const out = renderPrComment(report([row()]), {
-      exitCode: 0,
       threshold: 'high',
       commit: 'abc1234def5678',
       runUrl: 'https://example.test/run/1',
@@ -197,6 +250,6 @@ describe('renderPrComment', () => {
     const out = renderPrComment(report(rows), CONTEXT);
     expect(out).toContain('did not complete');
     // The critical finding is still listed, just not the headline.
-    expect(out).toContain('### 🚨 critical (1)');
+    expect(out).toContain('<code>a.ts</code> (1 critical)');
   });
 });
