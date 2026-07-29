@@ -1,0 +1,15 @@
+{
+  "ignorePatterns": [
+    "node_modules",
+    ".git",
+    ".github",
+    ".codereview-cache",
+    ".codereview-sessions",
+    "bin",
+    "dist",
+    "build",
+    "coverage",
+    "about/node_modules",
+    "about/build"
+  ]
+}
