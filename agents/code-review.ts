@@ -19,6 +19,7 @@ import { InteractiveSelector } from '../src/utils/interactive-selector.js';
 import { FileWatcher } from '../src/utils/file-watcher.js';
 import { OutputFormatter } from '../src/utils/output-formatter.js';
 import { probeClaudeCodeAuth, probeClaudeCodeCli } from '../src/core/claude-cli.js';
+import { resolveTargetPath } from '../src/utils/cli-target.js';
 
 /**
  * Reads a boolean environment variable. A bare truthiness test on the raw string
@@ -123,18 +124,7 @@ async function main() {
     outputFile = args[outputFileIndex + 1];
   }
   
-  // Remove format args to find the target path
-  const filteredArgs = args.filter((arg, index) => {
-    if (arg === '--template') return false;
-    if (templateIndex !== -1 && index === templateIndex + 1) return false;
-    if (arg === '--output') return false;
-    if (outputIndex !== -1 && index === outputIndex + 1) return false;
-    if (arg === '--output-file') return false;
-    if (outputFileIndex !== -1 && index === outputFileIndex + 1) return false;
-    return !arg.startsWith('--') && arg !== '-y';
-  });
-  
-  const targetPath = filteredArgs[0] || '.';
+  const targetPath = resolveTargetPath(args);
   
   // Check for git override flags
   const allowDirty = args.includes('--allow-dirty') || args.includes('--no-git-check');
