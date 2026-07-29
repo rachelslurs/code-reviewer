@@ -62,7 +62,9 @@ export interface VerdictCounts {
  * and four of them had the null case wrong before it was fixed one site at a time.
  * A seventh site now inherits the null handling instead of having to remember it.
  */
-export function summarizeVerdicts(results: Array<{ hasIssues: boolean | null }>): VerdictCounts {
+export function summarizeVerdicts(
+  results: ReadonlyArray<{ hasIssues: boolean | null }>,
+): VerdictCounts {
   const total = results.length;
   const withIssues = results.filter(r => r.hasIssues === true).length;
   const failed = results.filter(r => r.hasIssues === null).length;

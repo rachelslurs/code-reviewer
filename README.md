@@ -185,10 +185,30 @@ code-review --template combined --output markdown --output-file report.md ./src
 | `--no-git-check` | Skip git checks entirely | `--no-git-check` |
 | `--yes`, `-y` | Skip the confirmation prompt | `--yes` |
 | `--ci-mode` | Non-interactive output for CI | `--ci-mode` |
+| `--fail-on <severity>` | Exit 2 when findings reach this level | `--fail-on critical` |
 | `--config` | Show current configuration | `--config` |
 | `--setup` | Run the interactive setup wizard | `--setup` |
 | `--status` | Show model status and rate limits | `--status` |
 | `--help`, `-h` | Show usage | `--help` |
+
+A flag's value is a separate argument. `--template combined` works; `--template=combined` is rejected with a message rather than ignored.
+
+### Exit Codes
+
+Without `--fail-on` the exit code is 0 whatever the review found, which is what you want when a person is reading the output. Pass `--fail-on <severity>` to make the exit code mean something:
+
+| Code | Meaning |
+|------|---------|
+| `0` | Completed. Nothing at or above the threshold |
+| `1` | The result cannot be trusted: the review failed to run, a file returned no verdict, or the arguments were rejected |
+| `2` | Completed. Findings at or above the threshold |
+
+A file whose review failed exits 1 rather than 0 or 2. It produced no verdict, so reporting it as clean would hide the failure, and reporting it as a finding would blame the code for what was a timeout.
+
+```bash
+code-review ./src --template combined --fail-on critical --yes
+echo $?   # 2 if anything critical turned up
+```
 
 ### Environment Variables
 

@@ -20,6 +20,8 @@ import { FileWatcher } from '../src/utils/file-watcher.js';
 import { OutputFormatter } from '../src/utils/output-formatter.js';
 import { probeClaudeCodeAuth, probeClaudeCodeCli } from '../src/core/claude-cli.js';
 import { resolveTargetPath } from '../src/utils/cli-target.js';
+import { SEVERITY_ORDER, type Severity } from '../src/core/review-schema.js';
+import { describeGate, evaluateGate, parseSeverity } from '../src/core/severity-gate.js';
 
 /**
  * Reads a boolean environment variable. A bare truthiness test on the raw string
@@ -67,7 +69,18 @@ function preferClaudeCodeForReview(hasApiKey: boolean): boolean {
 
 async function main() {
   const args = process.argv.slice(2);
-  
+
+  // This CLI reads a flag's value as the following argument, so `--fail-on=critical`
+  // matches nothing and would be dropped without a word. Silently ignoring it would
+  // leave the severity gate switched off while the command line says otherwise.
+  const equalsForm = args.find(arg => arg.startsWith('--') && arg.includes('='));
+  if (equalsForm) {
+    const [name, ...rest] = equalsForm.split('=');
+    console.error(`❌ ${equalsForm}: this CLI takes a flag's value as a separate argument.`);
+    console.error(`   Use: ${name} ${rest.join('=')}`);
+    process.exit(1);
+  }
+
   // Handle help
   if (args.includes('--help') || args.includes('-h')) {
     printHelp();
@@ -124,6 +137,18 @@ async function main() {
     outputFile = args[outputFileIndex + 1];
   }
   
+  // Validated before the auth probe so a bad value costs nothing.
+  const failOnIndex = args.indexOf('--fail-on');
+  let failOn: Severity | null = null;
+  if (failOnIndex !== -1) {
+    const raw = failOnIndex < args.length - 1 ? args[failOnIndex + 1] : '';
+    failOn = parseSeverity(raw);
+    if (failOn === null) {
+      console.error(`❌ --fail-on ${raw || '(missing)'}: expected one of ${SEVERITY_ORDER.join(', ')}.`);
+      process.exit(1);
+    }
+  }
+
   const targetPath = resolveTargetPath(args);
   
   // Check for git override flags
@@ -322,7 +347,11 @@ async function main() {
   console.log('\n📂 Scanning files...');
   const scanner = new FileScanner(config);
   const sessionManager = new ReviewSessionManager();
-  
+
+  // Set by the severity gate below. Declared out here so the exit at the end of
+  // main() can read it; 1 stays reserved for the failure paths that exit directly.
+  let exitCode = 0;
+
   try {
     const scanResult = scanner.scanPath(targetPath);
     
@@ -564,6 +593,22 @@ async function main() {
       reviewer.printReviewSummary(allResults);
     }
 
+    // After the report is written, so a run that trips the gate still leaves its
+    // JSON behind for whatever consumes it.
+    if (failOn !== null) {
+      const outcome = evaluateGate(
+        allResults.map(result => ({
+          hasIssues: result.hasIssues,
+          findings: result.review?.findings ?? null,
+        })),
+        failOn,
+      );
+      console.log('\n' + describeGate(outcome, failOn));
+      // 2 separates "the review ran and found something" from "the review broke",
+      // which 1 already means everywhere else in this file.
+      if (outcome.shouldFail) exitCode = outcome.reason === 'threshold' ? 2 : 1;
+    }
+
   } catch (error) {
     console.error('❌ Error during review:', error);
     process.exit(1);
@@ -571,8 +616,8 @@ async function main() {
 
   // Ensure clean exit
   setTimeout(() => {
-    console.log('\n✅ Review completed successfully!');
-    process.exit(0);
+    if (exitCode === 0) console.log('\n✅ Review completed successfully!');
+    process.exit(exitCode);
   }, 500); // Give a brief moment for any final operations
 }
 
@@ -618,12 +663,22 @@ GIT:
   --no-git-check          Skip git checks entirely
 
 OTHER:
+  --fail-on <severity>    Exit 2 when findings reach critical, high, medium or low.
+                          Without it the exit code is 0 whatever the review found
   --yes, -y               Skip the confirmation prompt
   --ci-mode               Non-interactive output for CI
   --config                Show current configuration
   --setup                 Run the interactive setup wizard
   --status                Show model status and rate limits
   --help, -h              Show this message
+
+EXIT CODES:
+  0                       Completed, nothing at or above --fail-on
+  1                       The review could not be trusted: it failed to run, a file
+                          returned no verdict, or the arguments were rejected
+  2                       Completed, findings at or above --fail-on
+
+  A flag's value is a separate argument: --fail-on critical, never --fail-on=critical.
 
 ENVIRONMENT:
   ANTHROPIC_API_KEY       Claude API key, if not using the Claude Code CLI
@@ -638,6 +693,7 @@ EXAMPLES:
   code-review component.tsx                # Single file
   code-review --incremental --watch        # Changed files, re-run on save
   code-review --output json --output-file r.json ./src
+  code-review ./src --fail-on critical     # Exit 2 if anything critical turns up
   code-review --setup                      # Configure keys and settings
 
 CONFIGURATION:
