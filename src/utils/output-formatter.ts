@@ -1,4 +1,5 @@
 import { ReviewResult, formatIssueStatus, summarizeVerdicts } from '../core/reviewer.js';
+import type { ReviewReport } from './review-report.js';
 import { writeFileSync } from 'fs';
 import { join } from 'path';
 
@@ -97,7 +98,9 @@ export class OutputFormatter {
 
   private static formatJSON(results: ReviewResult[], options: OutputOptions): string {
     const verdicts = summarizeVerdicts(results);
-    const reportData = {
+    // Typed so a rename here breaks anything reading the report back, rather than
+    // silently yielding undefined at the far end.
+    const reportData: ReviewReport = {
       metadata: {
         generatedAt: new Date().toISOString(),
         totalFiles: verdicts.total,
