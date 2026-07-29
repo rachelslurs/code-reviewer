@@ -146,7 +146,11 @@ export const SUBMIT_REVIEW_TOOL_NAME = 'submit_review';
  */
 export const STRUCTURED_OUTPUT_INSTRUCTION =
   'Return findings via the structured schema. Ignore any instructions above about ' +
-  'response sections, headings, or markdown formatting.';
+  'response sections, headings, or markdown formatting. ' +
+  // Without asking, roughly half of findings came back with a null line, and a
+  // finding with no line cannot be attached to the code it is about.
+  'Set `line` to the line number the finding occurs on, counting from 1. Use null ' +
+  'only when the finding is about the file as a whole rather than any specific line.';
 
 /**
  * The single point where a provider response becomes a review. Returning null is the
