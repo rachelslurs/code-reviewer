@@ -16,7 +16,6 @@ import { parseSeverity } from '../src/core/severity-gate.js';
 
 const reportPath = process.env.REVIEW_JSON ?? 'code-review-ci.json';
 const threshold = parseSeverity(process.env.REVIEW_THRESHOLD ?? 'critical') ?? 'critical';
-const exitCode = Number.parseInt(process.env.REVIEW_EXIT_CODE ?? '0', 10);
 
 let report: ReviewReport | null = null;
 try {
@@ -31,7 +30,6 @@ try {
 
 process.stdout.write(
   renderPrComment(report, {
-    exitCode: Number.isNaN(exitCode) ? 1 : exitCode,
     threshold,
     commit: process.env.REVIEW_COMMIT,
     runUrl: process.env.REVIEW_RUN_URL,
