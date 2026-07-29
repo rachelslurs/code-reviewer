@@ -1,0 +1,213 @@
+name: PR review
+
+on:
+  pull_request:
+
+# Deliberately not pull_request_target. This repository is public, so that trigger
+# would hand ANTHROPIC_API_KEY to anything a pull request head can execute.
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    name: AI code review
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      # Before checkout, so a fork pull request costs a second and stops. Forks get
+      # no secrets on this trigger, which is not a failure worth a red check.
+      - name: Check for an API key
+        id: guard
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          # shellcheck disable=SC2016  # the backticks below are markdown, not substitution
+          if [ -z "${ANTHROPIC_API_KEY}" ]; then
+            echo "has_key=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "### AI code review skipped"
+              echo
+              echo '`ANTHROPIC_API_KEY` is not available to this run. Pull requests from'
+              echo 'forks do not receive repository secrets, so the review cannot run.'
+              echo 'A maintainer can review the branch locally with `bun run dev`.'
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "has_key=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout
+        if: steps.guard.outputs.has_key == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The review diffs against the base commit. At the default depth of 1 that
+          # commit is absent, session-manager swallows the git failure and returns an
+          # empty set, and the CLI exits 0 having reviewed nothing.
+          fetch-depth: 0
+
+      # Computed independently of the CLI, so "exited 0 and wrote no report" can be
+      # told apart from "nothing reviewable changed". Without this the silent-empty
+      # diff above is indistinguishable from a clean run.
+      - name: Determine expected review scope
+        id: scope
+        if: steps.guard.outputs.has_key == 'true'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if ! git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
+            echo "::error::Base commit ${BASE_SHA} is missing from the local history. actions/checkout needs fetch-depth: 0."
+            exit 1
+          fi
+          # This list has to match ignorePatterns in .codereview.json. A path counted
+          # here but ignored by the scanner would leave the review with nothing to do,
+          # which the enforcement step below reads as a broken diff and fails on.
+          COUNT="$(
+            git diff --name-only --diff-filter=ACMR "${BASE_SHA}" HEAD \
+              | grep -vE '^(node_modules|about/node_modules|about/build|bin|dist|build|coverage|\.github|\.codereview-cache|\.codereview-sessions)/' \
+              | grep -cE '\.(ts|tsx|js|jsx|mjs|cjs)$' || true
+          )"
+          echo "count=${COUNT}" >> "$GITHUB_OUTPUT"
+          echo "Reviewable files changed: ${COUNT}"
+
+      - name: Set up Bun
+        if: steps.guard.outputs.has_key == 'true'
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          # Exact, not `latest`: a runtime that changes under you makes a failure
+          # impossible to reproduce.
+          bun-version: 1.3.14
+
+      - name: Install dependencies
+        if: steps.guard.outputs.has_key == 'true'
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        if: steps.guard.outputs.has_key == 'true'
+        run: bun run typecheck
+
+      - name: Unit tests
+        if: steps.guard.outputs.has_key == 'true'
+        run: bun test
+
+      - name: Run the review
+        id: review
+        if: steps.guard.outputs.has_key == 'true' && steps.scope.outputs.count != '0'
+        timeout-minutes: 10
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          # preferClaudeCodeForReview withholds the API key whenever the `claude`
+          # binary probes as ready, so without this the transport depends on what
+          # happens to be installed in the runner image.
+          CODE_REVIEW_FORCE_API: '1'
+        run: |
+          set +e
+          # The path comes first deliberately. The parser strips a value flag's
+          # argument, but leading with the path means the target is unambiguous
+          # whatever else is on the line.
+          bun run agents/code-review.ts . \
+            --template combined \
+            --incremental \
+            --compare-with "${BASE_SHA}" \
+            --output json \
+            --output-file code-review-ci.json \
+            --fail-on critical \
+            --ci-mode \
+            --yes \
+            --allow-dirty \
+            --no-cache
+          CODE=$?
+          set -e
+          echo "exit_code=${CODE}" >> "$GITHUB_OUTPUT"
+          echo "The review CLI exited ${CODE}."
+
+      - name: Upload the review report
+        if: always() && steps.guard.outputs.has_key == 'true' && hashFiles('code-review-ci.json') != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: code-review-report
+          path: code-review-ci.json
+          retention-days: 14
+
+      - name: Render the PR comment
+        if: always() && steps.guard.outputs.has_key == 'true' && steps.scope.outputs.count != '0'
+        env:
+          REVIEW_JSON: code-review-ci.json
+          REVIEW_EXIT_CODE: ${{ steps.review.outputs.exit_code || '1' }}
+          REVIEW_THRESHOLD: critical
+          REVIEW_COMMIT: ${{ github.event.pull_request.head.sha }}
+          REVIEW_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        # Always exits 0 and always writes valid markdown, including when the report
+        # is missing, so there is no second comment path for the failure case.
+        run: |
+          bun run agents/render-pr-comment.ts > pr-comment.md
+          cat pr-comment.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Post or update the PR comment
+        if: always() && steps.guard.outputs.has_key == 'true' && hashFiles('pr-comment.md') != ''
+        # A fork's GITHUB_TOKEN is read-only and this 403s. The job summary already
+        # carries the same content, so it is not worth failing the check over.
+        continue-on-error: true
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const fs = require('fs');
+            const MARKER = '<!-- ai-code-review -->';
+            const body = fs.readFileSync('pr-comment.md', 'utf8');
+            const base = { owner: context.repo.owner, repo: context.repo.repo };
+            // Paginated: listComments returns 30 per page, and on a busy pull request
+            // our comment falls off page one and we start posting duplicates.
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              ...base, issue_number: context.issue.number, per_page: 100,
+            });
+            const existing = comments.find(c => (c.body ?? '').startsWith(MARKER));
+            if (existing) {
+              await github.rest.issues.updateComment({ ...base, comment_id: existing.id, body });
+              core.info(`Updated comment ${existing.id}.`);
+            } else {
+              const created = await github.rest.issues.createComment({
+                ...base, issue_number: context.issue.number, body,
+              });
+              core.info(`Created comment ${created.data.id}.`);
+            }
+
+      - name: Enforce the review outcome
+        if: always() && steps.guard.outputs.has_key == 'true'
+        env:
+          CODE: ${{ steps.review.outputs.exit_code || '0' }}
+          EXPECTED: ${{ steps.scope.outputs.count }}
+          HAS_REPORT: ${{ hashFiles('code-review-ci.json') != '' && 'true' || 'false' }}
+          # 'success', 'failure' or 'skipped'. The CLI's own exit code is captured
+          # into an output, but a step that dies before writing it would otherwise
+          # leave CODE defaulting to 0 and pass.
+          REVIEW_OUTCOME: ${{ steps.review.outcome }}
+        run: |
+          if [ "$REVIEW_OUTCOME" = "failure" ]; then
+            echo "::error::The review step failed. See the run log."
+            exit 1
+          fi
+          case "$CODE" in
+            0)
+              if [ "$HAS_REPORT" = "true" ]; then
+                echo "No findings at or above the threshold."
+              elif [ "$EXPECTED" = "0" ]; then
+                echo "No reviewable files changed."
+              else
+                echo "::error::The CLI exited 0 without writing a report, but ${EXPECTED} reviewable file(s) changed. The incremental diff resolved to an empty set."
+                exit 1
+              fi
+              ;;
+            2)
+              echo "::error::Findings at or above the threshold. See the PR comment."
+              exit 1
+              ;;
+            *)
+              echo "::error::The review did not complete (exit ${CODE}). See the run log."
+              exit 1
+              ;;
+          esac
