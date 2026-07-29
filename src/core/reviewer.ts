@@ -62,6 +62,31 @@ export interface VerdictCounts {
  * and four of them had the null case wrong before it was fixed one site at a time.
  * A seventh site now inherits the null handling instead of having to remember it.
  */
+/** One retry. Enough for a transient failure, bounded enough not to double a bill. */
+export const MAX_REVIEW_ATTEMPTS = 2;
+
+/**
+ * Whether a review is worth asking for again.
+ *
+ * A null `review` means the model answered but the answer was unusable: the payload
+ * missed the schema, no tool call came back, or the response was cut off at the
+ * token cap. None of those are properties of the file, so the same request can
+ * succeed on a second attempt. Measured over three CI runs on this repo, roughly one
+ * file in ten came back this way, which is often enough that a single unlucky file
+ * would otherwise fail the whole check.
+ *
+ * Retrying does not paper over the failure: a review that fails twice still carries a
+ * null verdict, and the gate still refuses to call it clean.
+ */
+export function shouldRetryReview(
+  result: { review: unknown; error?: string },
+  attempt: number,
+  maxAttempts: number = MAX_REVIEW_ATTEMPTS,
+): boolean {
+  if (attempt >= maxAttempts) return false;
+  return result.review === null && result.error !== undefined;
+}
+
 export function summarizeVerdicts(
   results: ReadonlyArray<{ hasIssues: boolean | null }>,
 ): VerdictCounts {
@@ -122,18 +147,27 @@ export class CodeReviewer {
   }
 
   async reviewFile(
-    file: FileInfo, 
+    file: FileInfo,
     template: ReviewTemplate
   ): Promise<ReviewResult> {
     console.log(`\n🔍 Reviewing ${file.relativePath} with ${template.name} template...`);
     console.log(`   Template: ${template.description}`);
     console.log(`   File size: ${this.formatBytes(file.size)} (estimated processing time: 30-90 seconds)`);
 
-    if (this.useClaudeCode) {
-      return this.reviewWithClaudeCode(file, template);
-    } else {
-      return this.reviewWithAPI(file, template);
+    let result = await this.runReview(file, template);
+
+    for (let attempt = 1; shouldRetryReview(result, attempt); attempt++) {
+      console.log(`   ↻ Retrying ${file.relativePath} (attempt ${attempt + 1} of ${MAX_REVIEW_ATTEMPTS}).`);
+      result = await this.runReview(file, template);
     }
+
+    return result;
+  }
+
+  private async runReview(file: FileInfo, template: ReviewTemplate): Promise<ReviewResult> {
+    return this.useClaudeCode
+      ? this.reviewWithClaudeCode(file, template)
+      : this.reviewWithAPI(file, template);
   }
 
   private async reviewWithClaudeCode(
