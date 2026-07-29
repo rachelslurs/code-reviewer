@@ -698,6 +698,30 @@ limit being the common case, it is used only if no `ANTHROPIC_API_KEY` is set. T
 run says which it picked and why. `CODE_REVIEW_FORCE_API=1` takes the API path
 regardless.
 
+## 🤖 Reviewing Pull Requests in CI
+
+`.github/workflows/pr-review.yml` reviews the files a pull request changed and posts
+the result as a comment. Add `ANTHROPIC_API_KEY` to the repository's Actions secrets
+to switch it on.
+
+The workflow reviews only files changed against the pull request's base commit, so it
+checks out with `fetch-depth: 0`. At the default depth the base commit is missing, the
+diff resolves to nothing, and the review reports success having read no files. A step
+counts the changed files itself and fails the check if the review then produces no
+report, which is the difference between a check that passes and a check that means
+something.
+
+Critical findings fail the check. Everything below that appears in the comment and
+passes. Change the `--fail-on` value in the workflow to move the line.
+
+The comment is rewritten in place on each push rather than added to, and the full JSON
+report is attached to the run as an artifact for 14 days.
+
+Pull requests from forks receive no secrets on the `pull_request` trigger, so the
+review is skipped and the run notes why in its summary. The workflow does not use
+`pull_request_target`, which would make the key reachable by code from the pull
+request. Review fork branches locally instead.
+
 ## 🛠 Development
 
 ### Project Structure
